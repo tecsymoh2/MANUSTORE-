@@ -14,6 +14,20 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   MAX_CONTENT_LENGTH=int(4.4 * 1024 * 1024))  # only the no-S3 fallback posts through Vercel
 MAX_MB = 4
 
+class FixPath:
+    """Vercel may hand Flask the function path (/api/index) instead of the visited URL."""
+    def __init__(self, a): self.a = a
+    def __call__(self, environ, start_response):
+        p = environ.get("PATH_INFO", "")
+        if p == "/api/index" or p.startswith("/api/index/"):
+            environ["PATH_INFO"] = p[len("/api/index"):] or "/"
+        return self.a(environ, start_response)
+app.wsgi_app = FixPath(app.wsgi_app)
+
+@app.errorhandler(404)
+def not_found(e):
+    return f'<h3>Page not found</h3><p>Path seen by server: {request.path}</p><p><a href="/">Go home</a></p>', 404
+
 def db():
     return psycopg2.connect(os.environ["DATABASE_URL"], cursor_factory=psycopg2.extras.RealDictCursor)
 
