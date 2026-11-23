@@ -1,6 +1,6 @@
 from urllib.parse import parse_qsl, urlencode
-import os, re, hmac, json, hashlib, secrets, mimetypes, urllib.request, urllib.error
-from datetime import timedelta, datetime, timezone
+import os, re, hmac, json, secrets, mimetypes, urllib.request, urllib.error
+from datetime import timedelta
 from functools import wraps
 import psycopg2, psycopg2.extras
 from flask import (Flask, request, session, redirect, url_for, flash,
@@ -117,19 +117,19 @@ a{color:var(--pr)}.mu{color:var(--mu);font-size:.9rem}.flash{padding:10px 14px;b
 .bar{height:10px;border-radius:5px;background:var(--bd);overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--pr)}.sl{width:100%;font-size:.75rem;padding:5px;margin-top:6px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}.acts form{display:inline}
 .up{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 footer{text-align:center;padding:18px;color:var(--mu);font-size:.85rem;border-top:1px solid var(--bd)}
-</style></head><body{% if full %} class="app"{% endif %}>
-{% if full %}{{ body|safe }}{% else %}<header><a class="logo" href="/">☁️ YIM CLOUD STORAGE</a>
+</style></head><body>
+<header><a class="logo" href="/">☁️ YIM CLOUD STORAGE</a>
 {% if session.uid %}<span><span class="mu">{{ session.uname }}</span> &nbsp;
 <form method="post" action="/logout" style="display:inline"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="btn sm gray">Logout</button></form></span>{% endif %}</header>
 <main>{% for c,m in get_flashed_messages(with_categories=true) %}<div class="flash {{c}}">{{m}}</div>{% endfor %}
 {{ body|safe }}</main>
-<footer>DEVELOPED BY SYMOH TECH</footer>{% endif %}
+<footer>DEVELOPED BY SYMOH TECH</footer>
 <script>document.querySelectorAll('.pw button').forEach(b=>b.onclick=()=>{const i=b.parentNode.querySelector('input');const s=i.type==='password';i.type=s?'text':'password';b.textContent=s?'Hide':'Show'})</script>
 </body></html>"""
 
-def page(body, title=None, full=False, **ctx):
+def page(body, title=None, **ctx):
     inner = render_template_string(body, **ctx)
-    return render_template_string(LAYOUT, body=inner, title=title, full=full)
+    return render_template_string(LAYOUT, body=inner, title=title)
 
 PW = """<div class="pw"><input type="password" name="{n}" id="{n}" required minlength="8" autocomplete="{a}"><button type="button">Show</button></div>"""
 CSRF = '<input type="hidden" name="csrf" value="{{ session.csrf }}">'
@@ -296,240 +296,54 @@ def send_row(fid, dl=False):
     if status == 206: h["Content-Range"] = f"bytes {start}-{end}/{size}"
     return Response(bytes(d), status=status, mimetype=mime, headers=h)
 
-DASH = r"""<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-body.app{--bg:#e6d3ae;--card:#eadfbf;--tx:#1c1209;--mu:#6b5640;--pr:#2b5a52;--bd:#1c1209;font-family:'Oswald','Arial Narrow',Impact,sans-serif;background:repeating-linear-gradient(45deg,#c9ab7e 0 6px,#c3a374 6px 12px)}
-body.app .btn{border-radius:5px;text-transform:uppercase;letter-spacing:.06em;font-family:inherit}body.app input[type=text]{font-family:inherit}
-.wr{max-width:1100px;margin:0 auto;padding:16px 16px 70px}.hd{background:#5a3a24;border:2px solid #1c1209;border-radius:8px;padding:16px;color:#eadfbf}
-.h1,.h2{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.h2{margin-top:14px}.lg{font-size:1.7rem;color:#eadfbf;text-decoration:none;white-space:nowrap}.lg b{color:#d2492b;font-weight:500}
-.sr{flex:1;min-width:200px}.sr input{background:#fbf6e6;border:2px solid #1c1209;border-radius:5px;padding:13px 14px;font-size:1.05rem}.tl{background:#2b5a52!important;color:#fff!important;border:2px solid #1c1209!important}
-.hb{background:transparent;color:#eadfbf;border:2px solid #1c1209;border-radius:5px;padding:12px 18px;font:500 .95rem Oswald,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;list-style:none}
-.mm{position:relative}.mm[open] .hb{background:#fbf6e6;color:#1c1209}.pp{position:absolute;top:50px;left:0;z-index:30;background:#fbf6e6;border:2px solid #1c1209;border-radius:6px;padding:6px;min-width:190px;display:flex;flex-direction:column}.pp a,.pp button{padding:10px 12px;color:#1c1209;text-decoration:none;background:none;border:0;text-align:left;font:inherit;cursor:pointer}
-#sb2{position:fixed;top:0;left:0;right:0;z-index:40;height:58px;display:none;align-items:center;gap:10px;padding:8px 14px;background:#5a3a24;color:#eadfbf;border-bottom:2px solid #1c1209}#sb2 .ib{color:#eadfbf}#sb2 .chip{background:#eadfbf;color:#1c1209;border-color:#1c1209}
-.st2{display:flex;gap:22px;flex-wrap:wrap;margin:16px 4px;color:#1c1209}.fl{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.ch{border:2px solid #1c1209;border-radius:999px;padding:8px 22px;text-decoration:none;color:#1c1209;text-transform:uppercase;letter-spacing:.06em;font-size:.95rem}.ch.on{background:#1c1209;color:#eadfbf}
-.fl select{background:#fbf6e6;border:1px solid #1c1209;padding:11px 12px;font:inherit;border-radius:5px}.mf{display:flex;gap:14px;align-items:center;margin:22px 0 14px;letter-spacing:.25em;font-weight:400;color:#3a2a1a;text-transform:none}.mf:after{content:"";flex:1;border-top:2px solid #8a7050}
-.cg{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:22px 14px}@media(min-width:700px){.cg{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}}
-.cd{background:#eadfbf;border:2px solid #1c1209;border-radius:8px;box-shadow:0 4px 0 #0003;overflow:hidden;position:relative}.cd.sel{outline:4px solid #2b5a52;outline-offset:-4px}
-.th{position:relative;height:200px;background:#1c1209;cursor:pointer;display:grid;place-items:center;overflow:hidden}.th img,.th video{width:100%;height:100%;object-fit:cover;display:block}.th .dc{font-size:3rem;color:#eadfbf;text-align:center}
-.stamp{position:absolute;top:10px;right:10px;transform:rotate(-5deg);border:2px solid #b8341c;color:#b8341c;background:#eadfbfee;padding:2px 10px;font-weight:500;letter-spacing:.08em;font-size:.85rem;border-radius:3px;text-transform:uppercase}
-.ck{position:absolute;top:10px;left:10px;width:28px;height:28px;border-radius:50%;border:2px solid #fff;background:#0006;color:#fff;display:none;place-items:center}.sm .ck{display:grid}.sel .ck{background:#2b5a52}
-.cb{padding:12px 14px 4px}.nm{font-size:1rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds{color:#5b4730;font-size:.95rem;min-height:1.3em;margin:4px 0 8px}
-.mr{display:flex;justify-content:space-between;gap:6px;padding:8px 0;border-top:1px dashed #8a7050;font-size:.85rem}.mr code{font-family:ui-monospace,monospace;font-size:.82rem}.mu2{color:#5b4730}
-.bt{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px 12px 12px}.bt button,.bt a{font:500 .82rem Oswald,sans-serif;letter-spacing:.05em;text-transform:uppercase;border:2px solid #1c1209;background:#eadfbf;color:#1c1209;border-radius:5px;padding:13px 2px;text-align:center;text-decoration:none;cursor:pointer}
-.bt .tl{background:#2b5a52;color:#fff}.bt .rd{background:#b8341c;color:#fff;border-color:#1c1209}
-.dl,.dz,.chip,#lb{font-family:inherit}.mo{background:#000b}.dl{border:2px solid #1c1209}.ts{background:#1c1209}
-@media(max-width:600px){.ct{margin:0}}
-</style>
-<div class="wr">
-<header class="hd"><div class="h1"><a class="lg" href="/">YIM <b>CLOUD STORAGE</b></a>
-<form class="sr" method="get"><input type="hidden" name="k" value="{{k}}"><input type="hidden" name="o" value="{{o}}"><input type="text" name="s" value="{{qs}}" placeholder="🔍 Search the manifest…"></form>
-<button class="btn tl" id="upb">+ New parcel</button></div>
-<div class="h2"><button class="hb" id="selb">Select</button>
-<details class="mm"><summary class="hb">··· More</summary><div class="pp"><a href="/?k=fav">★ Favorites</a><a href="/?k=trash">🗑 Trash</a>
-{% if k=='trash' and items %}<form method="post" action="/empty-trash" onsubmit="return confirm('Delete everything in Trash forever?')"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>⚠ Empty trash</button></form>{% endif %}</div></details>
-<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="hb">Sign out</button></form></div></header>
-<div id="sb2"><button class="ib" onclick="sel.clear();selMode=0;selUpdate()">✕</button><b id="sn" style="flex:1"></b>
-{% if k=='trash' %}<button class="chip" onclick="bulk('restore')">♻ Restore</button><button class="chip" onclick="confirm('Delete forever?')&&bulk('purge')">Delete forever</button>
-{% else %}<button class="ib" onclick="bulk('fav')">★</button><button class="ib" onclick="bulk('trash')">🗑</button>{% endif %}</div>
-<div class="st2"><span><b>{{ items|length }}</b> parcels loaded</span><span><b>{{ hs(used) }}</b> used</span><span>last shipped <b>{{ last }}</b></span></div>
-<div class="fl">{% for t,l in [('all','All'),('image','Image'),('video','Video'),('file','File')] %}<a class="ch {{ 'on' if k==t }}" href="/?k={{t}}&o={{o}}">{{l}}</a>{% endfor %}
-<form method="get"><input type="hidden" name="k" value="{{k}}"><input type="hidden" name="s" value="{{qs}}"><select name="o" onchange="this.form.submit()">{% for v,l in [('new','Newest first'),('old','Oldest first'),('big','Largest first'),('name','Name A–Z')] %}<option value="{{v}}" {{ 'selected' if o==v }}>{{l}}</option>{% endfor %}</select></form></div>
-<h4 class="mf">{{ 'Trash' if k=='trash' else 'Manifest' }}</h4>
-{% if not items %}<p style="text-align:center;padding:50px 0;color:#3a2a1a">{{ 'Nothing here yet.' if k!='all' or qs else 'No parcels yet — hit NEW PARCEL to upload your first.' }}</p>{% endif %}
-<div class="cg">{% for r in rows %}<div class="cd" data-i="{{r.i}}" data-id="{{r.id}}">
-<div class="th" data-a="pv">{% if r.kind=='image' %}<img loading="lazy" decoding="async" src="/f/{{r.id}}" alt="">{% elif r.kind=='video' %}<video muted preload="metadata" src="/f/{{r.id}}#t=0.1"></video>{% else %}<div class="dc">📄</div>{% endif %}<span class="stamp">{{ r.kind }}</span><span class="ck">✓</span></div>
-<div class="cb"><div class="nm">{{r.name}}</div><div class="ds">{{ r.description or '(no description)' }}</div>
-<div class="mr"><code>#{{r.sid}}</code><span>{{r.dt}}</span></div>
-<div class="mr mu2"><span>👁 {{r.share_views}} views</span><span>{{ r.lv }}</span></div></div>
-<div class="bt"><button data-a="pv">Preview</button>{% if k=='trash' %}<button class="tl" data-a="rs">Restore</button>{% else %}<button class="tl" data-a="sh">Share</button>{% endif %}<a href="/f/{{r.id}}?dl=1">↓ Download</a>
-{% if k=='trash' %}<button class="rd" data-a="rm" style="grid-column:span 3">Delete forever</button>{% else %}<button data-a="ed">Edit</button><button data-a="fv">{{ '★' if r.favorite else '☆' }}</button><button class="rd" data-a="rm">Delete</button>{% endif %}</div></div>{% endfor %}</div>
-<div class="ft">DEVELOPED BY SYMOH TECH</div></div>
-<div class="mo" id="md"><div class="dl" style="max-width:420px"><h3 style="margin-top:0">Edit parcel</h3><label>Name</label><input type="text" id="mn"><label>Description</label><input type="text" id="mdsc" maxlength="300"><div class="row" style="justify-content:flex-end"><button class="btn gray" id="mx">Cancel</button><button class="btn" id="ms">Save</button></div></div></div>
-<div class="mo" id="um"><div class="dl"><div class="row"><h3 style="margin:0;flex:1">Upload</h3><button class="ib" id="uc">✕</button></div>
-<label class="dz" id="dz"><input type="file" id="pick" multiple hidden>Drop files here or <b style="color:var(--pr)">browse</b></label>
-<div class="row"><span>Auto-shrink:</span><select id="qs"><option value="o">Original (no shrink)</option><option value="h">High (2560px / 1080p)</option><option value="m" selected>Medium (1920px / 720p)</option><option value="l">Low (1280px / 480p)</option></select></div>
-<p class="ss" id="vn">Videos are re-encoded in your browser, so keep this tab open while they shrink.</p>
-<div id="ql"></div><div class="row"><span class="ss" id="us" style="flex:1"></span><button class="btn" id="ug">Upload all</button></div></div></div>
-
-<div class="mo" id="em"><div class="dl"><h3 style="margin-top:0">Edit image</h3><div style="text-align:center"><div class="cw" id="cw"><canvas id="ec"></canvas><div id="cr"></div></div></div>
-<div class="row"><button class="chip" data-a="rl">⟲ Rotate</button><button class="chip" data-a="rr">⟳ Rotate</button><button class="chip" data-a="fh">⇋ Flip</button>
-<button class="chip" data-r="0">Free</button><button class="chip" data-r="1">1:1</button><button class="chip" data-r="1.3333">4:3</button><button class="chip" data-r="1.7778">16:9</button><button class="chip" data-r="o">Original</button><button class="chip" id="ac">✂ Crop</button></div>
-<div class="row"><label>Width <input id="rw" type="number" min="16" style="width:90px;padding:6px"> px</label>
-<label>☀ <input type="range" id="fb" min="50" max="150" value="100"></label><label>◐ <input type="range" id="fc" min="50" max="150" value="100"></label><label>🎨 <input type="range" id="fs" min="0" max="200" value="100"></label></div>
-<div class="row" style="justify-content:flex-end"><button class="btn gray" id="ex">Cancel</button><button class="btn gray" id="er">Reset</button><button class="btn" id="ed">Done</button></div></div></div>
-
-<div id="lb"><div class="lbt"><button class="ib" id="lbc">←</button><b id="lbn" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></b>
-<button class="ib" id="lbf">☆</button><button class="ib" id="lbs" title="Share link">🔗</button><button class="ib" id="lbe" title="Rename">✎</button><button class="ib" id="lbd" title="Download">⬇</button><button class="ib" id="lbt" title="Trash">🗑</button></div>
-<div id="lbm"></div><div class="lbt" style="justify-content:center"><span id="lbi" class="ss"></span></div><button class="ib nv" id="pv">‹</button><button class="ib nv" id="nx">›</button></div>
-
-<script>const CSRF="{{ session.csrf }}",S3={{ s3|tojson }},ITEMS={{ items|tojson }},K="{{ k }}",FL={{ fl|tojson }};</script>
-{% raw %}<script>
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const post=(u,b,h={})=>fetch(u,{method:'POST',headers:{'X-CSRF':CSRF,...h},body:b});
-const pj=(u,o)=>post(u,JSON.stringify(o),{'Content-Type':'application/json'});
-const mo=(id,on)=>$(id).classList.toggle('on',on);
-const hs=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':n<1073741824?(n/1048576).toFixed(1)+' MB':(n/1073741824).toFixed(2)+' GB';
-function toast(m){const t=document.createElement('div');t.className='ts';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),3200)}
-FL.forEach(f=>toast(f[1]));
-const copy=u=>(navigator.clipboard?navigator.clipboard.writeText(u).then(()=>toast('Link copied')):Promise.reject()).catch(()=>prompt('Copy link',u));
-/* selection + cards */
-const sel=new Set();let selMode=0;
-function selUpdate(){const on=selMode||sel.size>0;$('#sb2').style.display=on?'flex':'none';$('#sn').textContent=sel.size+' selected';document.body.classList.toggle('sm',on);$$('.cd').forEach(t=>t.classList.toggle('sel',sel.has(+t.dataset.id)))}
-$('#selb').onclick=()=>{selMode=!selMode;if(!selMode)sel.clear();selUpdate()};
-async function bulk(a){await pj('/api/bulk',{ids:[...sel],action:a});location.reload()}
-let mi=0;
-$('.cg').onclick=async e=>{const c=e.target.closest('.cd');if(!c)return;const id=+c.dataset.id,i=+c.dataset.i,x=ITEMS[i],b=e.target.closest('[data-a]');
- if(selMode||sel.size){e.preventDefault();sel.has(id)?sel.delete(id):sel.add(id);selUpdate();return}
- const a=b&&b.dataset.a;if(!a)return;
- if(a==='pv')openLb(i);
- else if(a==='sh'){if(!x.u){const r=await post('/share/'+id,new URLSearchParams({days:0}));x.u=(await r.json()).url}copy(x.u)}
- else if(a==='fv'){await post('/fav/'+id);x.f=!x.f;b.textContent=x.f?'★':'☆'}
- else if(a==='ed'){mi=i;$('#mn').value=x.n;$('#mdsc').value=x.ds||'';mo('#md',true)}
- else if(a==='rs'){await post('/restore/'+id);c.remove();toast('Restored')}
- else if(a==='rm'){if(!confirm(K==='trash'?'Delete forever?':'Move to Trash?'))return;await post(K==='trash'?'/purge/'+id:'/trash/'+id);c.remove();toast(K==='trash'?'Deleted':'Moved to Trash')}};
-$('#mx').onclick=()=>mo('#md',false);
-$('#ms').onclick=async()=>{const x=ITEMS[mi],n=$('#mn').value.trim(),ds=$('#mdsc').value.trim();if(!n)return;
- const r=await pj('/api/meta/'+x.id,{name:n,description:ds});if(!r.ok)return toast('Could not save');x.n=n;x.ds=ds;
- const c=$(`.cd[data-i="${mi}"]`);c.querySelector('.nm').textContent=n;c.querySelector('.ds').textContent=ds||'(no description)';mo('#md',false);toast('Saved')};
-/* lightbox */
-let li=0,dirty=0;
-function openLb(i){if(i<0||i>=ITEMS.length)return;li=i;const x=ITEMS[i],m=$('#lbm');m.innerHTML='';
- if(x.k==='image'){const e=new Image();e.src='/f/'+x.id;m.append(e)}else if(x.k==='video'){const v=document.createElement('video');v.src='/f/'+x.id;v.controls=v.autoplay=v.playsInline=true;m.append(v)}
- else{m.innerHTML='<div style="text-align:center"><div style="font-size:4rem">📄</div><a class="btn" href="/f/'+x.id+'?dl=1">Download</a></div>'}
- $('#lbn').textContent=x.n;$('#lbf').textContent=x.f?'★':'☆';$('#lbi').textContent=x.s+' · '+x.d;mo('#lb',true)}
-function closeLb(){mo('#lb',false);$('#lbm').innerHTML='';if(dirty)location.reload()}
-$('#lbc').onclick=closeLb;$('#pv').onclick=()=>openLb(li-1);$('#nx').onclick=()=>openLb(li+1);
-document.onkeydown=e=>{if(!$('#lb').classList.contains('on'))return;if(e.key==='Escape')closeLb();if(e.key==='ArrowLeft')openLb(li-1);if(e.key==='ArrowRight')openLb(li+1)};
-let tx=0;$('#lbm').ontouchstart=e=>tx=e.touches[0].clientX;$('#lbm').ontouchend=e=>{const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>70)openLb(li+(d<0?1:-1))};
-$('#lbf').onclick=async()=>{const x=ITEMS[li];await post('/fav/'+x.id);x.f=!x.f;$('#lbf').textContent=x.f?'★':'☆';dirty=1};
-$('#lbs').onclick=async()=>{const x=ITEMS[li];if(!x.u){const r=await post('/share/'+x.id,new URLSearchParams({days:7}));x.u=(await r.json()).url;dirty=1}copy(x.u)};
-$('#lbd').onclick=()=>location.href='/f/'+ITEMS[li].id+'?dl=1';
-$('#lbt').onclick=async()=>{if(K==='trash'){if(!confirm('Delete forever?'))return;await post('/purge/'+ITEMS[li].id)}else await post('/trash/'+ITEMS[li].id);location.reload()};
-$('#lbe').onclick=async()=>{const x=ITEMS[li],n=prompt('Rename',x.n);if(!n||n===x.n)return;const r=await pj('/api/rename/'+x.id,{name:n});if(r.ok){x.n=n;$('#lbn').textContent=n;dirty=1}};
-/* ---- compression ---- */
-const Q={o:null,h:{px:2560,v:.9,vh:1080,vb:5e6},m:{px:1920,v:.82,vh:720,vb:2.5e6},l:{px:1280,v:.7,vh:480,vb:1e6}};
-const WEBP=document.createElement('canvas').toDataURL('image/webp').startsWith('data:image/webp')?'image/webp':'image/jpeg';
-const EX={'image/webp':'.webp','image/jpeg':'.jpg','video/webm':'.webm','video/mp4':'.mp4'};
-async function shrinkImg(blob,q){const bm=await createImageBitmap(blob),sc=Math.min(1,q.px/Math.max(bm.width,bm.height)),c=document.createElement('canvas');
- c.width=Math.round(bm.width*sc);c.height=Math.round(bm.height*sc);c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
- const o=await new Promise(r=>c.toBlob(r,WEBP,q.v));return o&&o.size<blob.size?o:blob}
-async function shrinkVid(blob,q,cb){
- if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream)return blob;
- const mt=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'].find(t=>MediaRecorder.isTypeSupported(t));if(!mt)return blob;
- const v=document.createElement('video');v.playsInline=true;v.src=URL.createObjectURL(blob);
- await new Promise((r,j)=>{v.onloadedmetadata=r;v.onerror=()=>j(new Error('Cannot read video'))});
- const sc=Math.min(1,q.vh/Math.min(v.videoWidth,v.videoHeight)),w=Math.round(v.videoWidth*sc/2)*2,h=Math.round(v.videoHeight*sc/2)*2;
- if(sc===1&&blob.size<3e6)return blob;
- const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d'),out=c.captureStream(30);
- try{const ac=new AudioContext();await ac.resume();const d=ac.createMediaStreamDestination();ac.createMediaElementSource(v).connect(d);d.stream.getAudioTracks().forEach(t=>out.addTrack(t))}catch(e){}
- const rec=new MediaRecorder(out,{mimeType:mt,videoBitsPerSecond:q.vb}),ch=[];rec.ondataavailable=e=>e.data.size&&ch.push(e.data);
- const done=new Promise(r=>rec.onstop=r);rec.start(1000);let raf;
- const tick=()=>{x.drawImage(v,0,0,w,h);cb(v.currentTime/v.duration);raf=requestAnimationFrame(tick)};
- v.onended=()=>{cancelAnimationFrame(raf);rec.stop()};await v.play();tick();await done;
- const o=new Blob(ch,{type:mt.split(';')[0]});return o.size&&o.size<blob.size?o:blob}
-/* ---- upload queue ---- */
-const S=[];
-function addFiles(fl){[...fl].forEach(f=>{const m=/^(.*?)(\.[^.]+)?$/.exec(f.name),k=f.type.startsWith('image/')?'image':f.type.startsWith('video/')?'video':'file';
- const st={blob:f,base:m[1]||'file',ext:m[2]||'',kind:k,shrink:true,orig:f.size};S.push(st);
- const r=document.createElement('div');r.className='qr';r.innerHTML='<div class="qt"></div><div class="qm"><div class="qn"><input class="nm"><span class="ex"></span></div><div class="ss"></div><div class="pb"><i></i></div></div><label class="ss"><input type="checkbox" class="sk" checked> shrink</label><button class="ib ed" title="Edit">✎</button><button class="ib rm" title="Remove">✕</button>';
- st.el=r;r.querySelector('.nm').value=st.base;r.querySelector('.nm').oninput=e=>st.base=e.target.value;r.querySelector('.sk').onchange=e=>st.shrink=e.target.checked;
- r.querySelector('.rm').onclick=()=>{S.splice(S.indexOf(st),1);r.remove()};
- const ed=r.querySelector('.ed');if(k!=='image'||/gif|svg/.test(f.type))ed.style.visibility='hidden';else ed.onclick=()=>openEd(st);
- if(k==='video')r.querySelector('.sk').parentNode.title='Shrinking videos takes about as long as the video';
- $('#ql').append(r);refresh(st)})}
-function refresh(st){const r=st.el,q=r.querySelector('.qt');r.querySelector('.ex').textContent=st.ext;r.querySelector('.ss').textContent=hs(st.blob.size)+(st.blob.size!==st.orig?' (was '+hs(st.orig)+')':'');
- const u=URL.createObjectURL(st.blob);q.innerHTML='';if(st.kind==='image'){const i=new Image();i.src=u;q.append(i)}else if(st.kind==='video'){const v=document.createElement('video');v.src=u+'#t=0.1';v.muted=true;v.preload='metadata';q.append(v)}else q.textContent='📄'}
-$('#pick').onchange=e=>{addFiles(e.target.files);e.target.value=''};
-['dragover','drop'].forEach(n=>document.addEventListener(n,e=>{e.preventDefault();if(n==='drop'&&e.dataTransfer.files.length){mo('#um',true);addFiles(e.dataTransfer.files)}}));
-$('#upb').onclick=()=>mo('#um',true);$('#uc').onclick=()=>{if(!S.some(s=>s.busy))mo('#um',false)};
-function xhr(method,url,body,type,cb){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open(method,url);if(type)x.setRequestHeader('Content-Type',type);x.setRequestHeader('X-CSRF',CSRF);
- x.upload.onprogress=e=>e.lengthComputable&&cb(e.loaded/e.total);
- x.onload=()=>x.status<300?ok():no(new Error((()=>{try{return JSON.parse(x.responseText).error}catch(e){return 'Upload failed'}})()));x.onerror=()=>no(new Error('Network error — check bucket CORS'));x.send(body)})}
-async function upOne(b,name,cb){const type=b.type||'application/octet-stream';
- if(S3){const r=await pj('/api/presign',{name,type,size:b.size}),j=await r.json();if(!r.ok)throw new Error(j.error);
-  await xhr('PUT',j.url,b,type,cb);const d=await post('/api/done/'+j.id);if(!d.ok)throw new Error('Could not finish upload')}
- else{const fd=new FormData();fd.append('file',b,name);await xhr('POST','/upload',fd,null,cb)}}
-$('#ug').onclick=async()=>{if(!S.length)return;$('#ug').disabled=true;let ok=0;const q=Q[$('#qs').value];
- for(const st of S){if(st.done)continue;st.busy=1;const r=st.el,ss=r.querySelector('.ss'),bar=r.querySelector('.pb i');
-  try{let b=st.blob;
-   if(st.shrink&&q){ss.textContent='Shrinking…';if(st.kind==='image'&&!/gif|svg/.test(b.type))b=await shrinkImg(b,q);else if(st.kind==='video')b=await shrinkVid(b,q,p=>{ss.textContent='Shrinking video '+Math.round(p*100)+'%'})}
-   const ext=b!==st.blob?(EX[b.type]||st.ext):st.ext,name=(st.base.trim()||'file')+ext;
-   ss.textContent='Uploading '+hs(st.orig)+' → '+hs(b.size);await upOne(b,name,p=>bar.style.width=Math.round(p*100)+'%');
-   bar.style.width='100%';ss.textContent='✓ Uploaded · '+hs(b.size);st.done=1;ok++}catch(e){ss.textContent='⚠ '+e.message}st.busy=0}
- $('#ug').disabled=false;if(ok){toast(ok+' file(s) uploaded');setTimeout(()=>location.reload(),800)}};
-/* ---- image editor ---- */
-let E=null,d0=null;const cw=$('#cw'),cv=$('#ec'),cr=$('#cr');
-const flt=()=>`brightness(${$('#fb').value}%) contrast(${$('#fc').value}%) saturate(${$('#fs').value}%)`;
-function load(st){const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=im.naturalWidth;c.height=im.naturalHeight;c.getContext('2d').drawImage(im,0,0);E={st,base:c,crop:null,asp:0};['#fb','#fc','#fs'].forEach(s=>$(s).value=100);draw();mo('#em',true)};im.src=URL.createObjectURL(st.blob)}
-const openEd=load;
-function draw(){const b=E.base;cv.width=b.width;cv.height=b.height;cv.getContext('2d').drawImage(b,0,0);cv.style.filter=flt();$('#rw').value=b.width;E.crop=null;cr.style.display='none'}
-['#fb','#fc','#fs'].forEach(s=>$(s).oninput=()=>cv.style.filter=flt());
-function tf(fn){const b=E.base,c=document.createElement('canvas'),x=fn(b,c)||c.getContext('2d');E.base=c;draw()}
-function rot(d){tf((b,c)=>{c.width=b.height;c.height=b.width;const x=c.getContext('2d');x.translate(c.width/2,c.height/2);x.rotate(d*Math.PI/2);x.drawImage(b,-b.width/2,-b.height/2);return x})}
-function flip(){tf((b,c)=>{c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.translate(b.width,0);x.scale(-1,1);x.drawImage(b,0,0);return x})}
-function setCrop(x,y,w,h){const r=cv.getBoundingClientRect();x=Math.max(0,x);y=Math.max(0,y);w=Math.min(w,r.width-x);h=Math.min(h,r.height-y);
- Object.assign(cr.style,{display:'block',left:x+'px',top:y+'px',width:w+'px',height:h+'px'});const s=cv.width/r.width;E.crop={x:x*s,y:y*s,w:w*s,h:h*s}}
-cw.onpointerdown=e=>{const r=cv.getBoundingClientRect();d0={x:e.clientX-r.left,y:e.clientY-r.top,r};cw.setPointerCapture(e.pointerId)};
-cw.onpointermove=e=>{if(!d0)return;const r=d0.r,x=Math.min(Math.max(e.clientX-r.left,0),r.width),y=Math.min(Math.max(e.clientY-r.top,0),r.height);let w=x-d0.x,h=y-d0.y;if(E.asp)h=(h<0?-1:1)*Math.abs(w)/E.asp;setCrop(Math.min(d0.x,d0.x+w),Math.min(d0.y,d0.y+h),Math.abs(w),Math.abs(h))};
-cw.onpointerup=()=>d0=null;
-$$('[data-a]').forEach(b=>b.onclick=()=>{const a=b.dataset.a;a==='rl'?rot(-1):a==='rr'?rot(1):flip()});
-$$('[data-r]').forEach(b=>b.onclick=()=>{$$('[data-r]').forEach(x=>x.classList.remove('on'));b.classList.add('on');const v=b.dataset.r;E.asp=v==='o'?E.base.width/E.base.height:+v;
- if(!E.asp){E.crop=null;cr.style.display='none';return}const r=cv.getBoundingClientRect();let w=r.width,h=w/E.asp;if(h>r.height){h=r.height;w=h*E.asp}setCrop((r.width-w)/2,(r.height-h)/2,w,h)});
-function applyCrop(){const k=E.crop;if(!k||k.w<8||k.h<8)return;tf((b,c)=>{c.width=Math.round(k.w);c.height=Math.round(k.h);const x=c.getContext('2d');x.drawImage(b,k.x,k.y,k.w,k.h,0,0,c.width,c.height);return x})}
-$('#ac').onclick=applyCrop;$('#ex').onclick=()=>mo('#em',false);$('#er').onclick=()=>load(E.st);
-$('#ed').onclick=()=>{applyCrop();const b=E.base,W=Math.max(16,+$('#rw').value||b.width),H=Math.round(b.height*W/b.width),c=document.createElement('canvas');c.width=W;c.height=H;
- const x=c.getContext('2d');x.filter=flt();x.drawImage(b,0,0,W,H);c.toBlob(o=>{E.st.blob=o;E.st.ext=EX[WEBP];refresh(E.st);mo('#em',false)},WEBP,.92)};
-</script>{% endraw %}
-"""
-
-ORDER = {"new": "created_at DESC", "old": "created_at ASC", "big": "size DESC", "name": "lower(name) ASC"}
-
 @app.route("/")
 @login_required
 def home():
-    k, qs, o = request.args.get("k", "all"), request.args.get("s", "").strip(), request.args.get("o", "new")
-    if o not in ORDER: o = "new"
+    k, qs = request.args.get("k", "all"), request.args.get("s", "").strip()
     where, args = "user_id=%s AND ready", [session["uid"]]
     where += " AND trashed_at IS NOT NULL" if k == "trash" else " AND trashed_at IS NULL"
     if k == "fav": where += " AND favorite"
     if k in ("image", "video", "file"): where += " AND kind=%s"; args.append(k)
-    if qs: where += " AND (name ILIKE %s OR description ILIKE %s)"; args += [f"%{qs}%"] * 2
-    rows = q(f"SELECT id,name,kind,size,favorite,share_slug,share_views,share_last_view,description,created_at FROM files WHERE {where} ORDER BY {ORDER[o]}", args)
-    used, base = used_bytes(session["uid"]), base_url()
-    items = []
-    for r in rows:
-        r["i"] = len(items)
-        r["sid"] = hashlib.sha1(f"{r['id']}-{r['created_at']}".encode()).hexdigest()[:10]
-        r["dt"] = r["created_at"].strftime("%d/%m/%Y")
-        r["lv"] = r["share_last_view"].strftime("%d/%m/%Y") if r["share_last_view"] else "never viewed"
-        items.append({"id": r["id"], "n": r["name"], "ds": r["description"] or "", "k": r["kind"], "s": human(r["size"]),
-                      "f": bool(r["favorite"]), "u": f"{base}/s/{r['share_slug']}" if r["share_slug"] else "", "d": r["dt"]})
-    last = max((r["created_at"] for r in rows), default=None)
-    return page(DASH, "YIM CLOUD STORAGE", full=True, rows=rows, items=items, k=k, qs=qs, o=o, used=used,
-                hs=human, s3=S3_ON, last=last.strftime("%d/%m/%Y") if last else "—", fl=get_flashed_messages(with_categories=True))
-
-@app.route("/api/bulk", methods=["POST"])
-@login_required
-def bulk():
-    j = request.get_json(silent=True) or {}
-    ids, a = [int(i) for i in j.get("ids", [])][:500], j.get("action")
-    rows = q("SELECT id,s3_key,favorite FROM files WHERE user_id=%s AND id=ANY(%s)", (session["uid"], ids))
-    if not rows: return {"ok": True}
-    ids = [r["id"] for r in rows]
-    if a == "trash": q("UPDATE files SET trashed_at=now(), share_slug=NULL WHERE id=ANY(%s)", (ids,))
-    elif a == "restore": q("UPDATE files SET trashed_at=NULL WHERE id=ANY(%s)", (ids,))
-    elif a == "fav": q("UPDATE files SET favorite=%s WHERE id=ANY(%s)", (not all(r["favorite"] for r in rows), ids))
-    elif a == "purge": purge_rows(rows)
-    else: abort(400)
-    return {"ok": True}
-
-@app.route("/api/rename/<int:fid>", methods=["POST"])
-@login_required
-def api_rename(fid):
-    own(fid)
-    n = os.path.basename(str((request.get_json(silent=True) or {}).get("name", "")).strip())[:200]
-    if not n: return {"error": "Name required"}, 400
-    q("UPDATE files SET name=%s WHERE id=%s", (n, fid)); return {"ok": True}
+    if qs: where += " AND name ILIKE %s"; args.append(f"%{qs}%")
+    rows = q(f"SELECT id,name,kind,size,favorite,share_slug,share_expires_at FROM files WHERE {where} ORDER BY created_at DESC", args)
+    used = used_bytes(session["uid"])
+    return page("""<h2>My files</h2>
+<div class="card" style="max-width:none;margin:0 0 14px"><b>{{ hs(used) }}</b> <span class="mu">of {{ hs(cap) }} used</span>
+<div class="bar"><i style="width:{{ [100, used*100/cap]|min }}%"></i></div>
+<div class="up"><input type="file" id="pick" multiple><button class="btn" id="go" type="button">Upload</button><span class="mu" id="st">{{ 'Large files supported' if s3 else 'Max 4 MB per file (set up S3 for more)' }}</span></div></div>
+<form class="up" method="get"><input type="hidden" name="k" value="{{k}}"><input type="text" name="s" value="{{qs}}" placeholder="Search files…" style="max-width:260px"></form>
+<p class="tabs" style="margin-top:12px">{% for t,l in [('all','All'),('image','Images'),('video','Videos'),('file','Files'),('fav','★ Favorites'),('trash','🗑 Trash')] %}<a class="{{ 'on' if k==t }}" href="/?k={{t}}">{{l}}</a>{% endfor %}
+{% if k=='trash' and rows %}<form method="post" action="/empty-trash" style="display:inline" onsubmit="return confirm('Delete everything in Trash forever?')">""" + CSRF + """<button class="btn sm red">Empty trash</button></form>{% endif %}</p>
+{% if not rows %}<p class="mu">Nothing here yet.</p>{% endif %}
+<div class="grid">{% for r in rows %}<div class="item"><a class="thumb" href="/f/{{r.id}}" target="_blank" style="text-decoration:none">
+{% if r.kind=='image' %}<img loading="lazy" src="/f/{{r.id}}" alt="">{% elif r.kind=='video' %}🎬{% else %}📄{% endif %}</a>
+<div class="meta"><b title="{{r.name}}">{{'★ ' if r.favorite}}{{r.name}}</b><span class="mu">{{ hs(r.size) }}</span>
+{% if r.share_slug %}<input class="sl" readonly value="{{base}}/s/{{r.share_slug}}" onclick="this.select()">{% endif %}</div>
+<div class="acts">{% if k=='trash' %}
+<form method="post" action="/restore/{{r.id}}">""" + CSRF + """<button class="btn sm">Restore</button></form>
+<form method="post" action="/purge/{{r.id}}" onsubmit="return confirm('Delete forever?')">""" + CSRF + """<button class="btn sm red">Delete</button></form>
+{% else %}<form method="post" action="/fav/{{r.id}}">""" + CSRF + """<button class="btn sm gray">{{ '★' if r.favorite else '☆' }}</button></form>
+{% if r.share_slug %}<form method="post" action="/unshare/{{r.id}}">""" + CSRF + """<button class="btn sm gray">Unshare</button></form>
+{% else %}<form method="post" action="/share/{{r.id}}">""" + CSRF + """<select name="days" style="font-size:.8rem"><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="0">No expiry</option></select><button class="btn sm gray">Share</button></form>{% endif %}
+<a class="btn sm" href="/f/{{r.id}}?dl=1">⬇</a>
+<form method="post" action="/trash/{{r.id}}">""" + CSRF + """<button class="btn sm red">🗑</button></form>{% endif %}</div></div>{% endfor %}</div>
+<script>const CSRF="{{ session.csrf }}",S3={{ s3|tojson }};</script>
+{% raw %}<script>
+const st=document.getElementById('st');
+function xhr(method,url,body,type,label){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open(method,url);
+ if(type)x.setRequestHeader('Content-Type',type);x.setRequestHeader('X-CSRF',CSRF);
+ x.upload.onprogress=e=>{if(e.lengthComputable)st.textContent=label+' '+Math.round(e.loaded*100/e.total)+'%'};
+ x.onload=()=>x.status<300?ok(x.responseText):no(new Error((()=>{try{return JSON.parse(x.responseText).error}catch(e){return 'Upload failed'}})()));
+ x.onerror=()=>no(new Error('Network error — check bucket CORS'));x.send(body)})}
+async function up(f){const type=f.type||'application/octet-stream',label=f.name;
+ if(S3){const r=await fetch('/api/presign',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({name:f.name,type:type,size:f.size})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error);
+  await xhr('PUT',j.url,f,type,label);
+  const d=await fetch('/api/done/'+j.id,{method:'POST',headers:{'X-CSRF':CSRF}});if(!d.ok)throw new Error('Could not finish upload');
+ }else{const fd=new FormData();fd.append('file',f);await xhr('POST','/upload',fd,null,label)}}
+document.getElementById('go').onclick=async()=>{const fs=[...document.getElementById('pick').files];if(!fs.length)return;
+ try{for(const f of fs)await up(f);location.reload()}catch(e){st.textContent='⚠ '+e.message}};
+</script>{% endraw %}""", "My files", rows=rows, k=k, qs=qs, used=used, cap=CAP, hs=human, s3=S3_ON, base=base_url())
 
 @app.errorhandler(413)
 def too_big(e): return {"error": "File too large (max 4 MB without S3)."}, 413
@@ -576,19 +390,18 @@ def serve(fid):
 def shared(slug):
     f = q("SELECT id FROM files WHERE share_slug=%s AND ready AND trashed_at IS NULL AND (share_expires_at IS NULL OR share_expires_at>now())", (slug.lower(),), one=True)
     if not f: abort(404)
-    q("UPDATE files SET share_views=share_views+1, share_last_view=now() WHERE id=%s", (f["id"],))
+    q("UPDATE files SET share_views=share_views+1 WHERE id=%s", (f["id"],))
     return send_row(f["id"], bool(request.args.get("dl")))
 
-def back(): return {"ok": True} if request.headers.get("X-CSRF") else redirect(request.referrer or url_for("home"))
+def back(): return redirect(request.referrer or url_for("home"))
 
 @app.route("/share/<int:fid>", methods=["POST"])
 @login_required
 def share(fid):
     own(fid); d = int(request.form.get("days", 7))
-    slug = secrets.token_urlsafe(6).lower().replace("_", "x").replace("-", "y")
-    q("UPDATE files SET share_slug=%s, share_expires_at=CASE WHEN %s>0 THEN now()+%s*interval '1 day' END WHERE id=%s", (slug, d, d, fid))
-    if request.headers.get("X-CSRF"): return {"url": f"{base_url()}/s/{slug}"}
-    flash("Share link created."); return back()
+    q("UPDATE files SET share_slug=%s, share_expires_at=CASE WHEN %s>0 THEN now()+%s*interval '1 day' END WHERE id=%s",
+      (secrets.token_urlsafe(6).lower().replace("_", "x").replace("-", "y"), d, d, fid))
+    flash("Share link created — copy it from the file card."); return back()
 
 @app.route("/unshare/<int:fid>", methods=["POST"])
 @login_required
@@ -627,12 +440,3 @@ def purge(fid):
 def empty_trash():
     purge_rows(q("SELECT id,s3_key FROM files WHERE user_id=%s AND trashed_at IS NOT NULL", (session["uid"],)))
     flash("Trash emptied."); return redirect(url_for("home", k="trash"))
-
-@app.route("/api/meta/<int:fid>", methods=["POST"])
-@login_required
-def api_meta(fid):
-    own(fid); j = request.get_json(silent=True) or {}
-    n = os.path.basename(str(j.get("name", "")).strip())[:200]
-    if not n: return {"error": "Name required"}, 400
-    q("UPDATE files SET name=%s, description=%s WHERE id=%s", (n, str(j.get("description", "")).strip()[:300] or None, fid))
-    return {"ok": True}
