@@ -1,3 +1,4 @@
+from urllib.parse import parse_qsl, urlencode
 import os, re, hmac, json, secrets, mimetypes, urllib.request, urllib.error
 from datetime import timedelta
 from functools import wraps
@@ -15,12 +16,19 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
 MAX_MB = 4
 
 class FixPath:
-    """Vercel may hand Flask the function path (/api/index) instead of the visited URL."""
+    """Vercel gives Flask the function path (/api/index). vercel.json passes the real
+    page path in ?__path=..., so restore it here."""
     def __init__(self, a): self.a = a
     def __call__(self, environ, start_response):
         p = environ.get("PATH_INFO", "")
         if p == "/api/index" or p.startswith("/api/index/"):
-            environ["PATH_INFO"] = p[len("/api/index"):] or "/"
+            rest, real = [], None
+            for k, v in parse_qsl(environ.get("QUERY_STRING", ""), keep_blank_values=True):
+                if k == "__path" and real is None: real = v
+                else: rest.append((k, v))
+            if real is not None:
+                environ["PATH_INFO"] = "/" + real.lstrip("/")
+                environ["QUERY_STRING"] = urlencode(rest)
         return self.a(environ, start_response)
 app.wsgi_app = FixPath(app.wsgi_app)
 
