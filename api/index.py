@@ -1,5 +1,5 @@
 from urllib.parse import parse_qsl, urlencode
-import os, re, hmac, json, secrets, mimetypes, urllib.request, urllib.error
+import os, re, hmac, json, hashlib, secrets, mimetypes, urllib.request, urllib.error
 from datetime import timedelta, datetime, timezone
 from functools import wraps
 import psycopg2, psycopg2.extras
@@ -296,48 +296,55 @@ def send_row(fid, dl=False):
     if status == 206: h["Content-Range"] = f"bytes {start}-{end}/{size}"
     return Response(bytes(d), status=status, mimetype=mime, headers=h)
 
-DASH = r"""<style>
-body.app{display:block}.ib{background:none;border:0;border-radius:50%;width:40px;height:40px;font-size:1.1rem;cursor:pointer;color:var(--tx)}.ib:hover{background:var(--bg)}
-.tb,#sb2{position:sticky;top:0;z-index:25;display:flex;align-items:center;gap:10px;padding:8px 16px;height:57px;background:var(--card);border-bottom:1px solid var(--bd)}
-#sb2{position:fixed;left:0;right:0;display:none}.tb .logo{white-space:nowrap}.sr{flex:1;max-width:620px;margin:0 auto}.sr input{border:0;border-radius:999px;padding:11px 18px}
-.av{list-style:none;width:36px;height:36px;border-radius:50%;background:var(--pr);color:#fff;display:grid;place-items:center;font-weight:700;cursor:pointer}.me{position:relative}.pop{position:absolute;right:0;top:44px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;min-width:150px;box-shadow:0 8px 24px #0003}
-.sb{position:fixed;top:57px;left:0;bottom:0;width:230px;padding:12px 12px 0;overflow:auto}.sb a{display:flex;gap:12px;padding:11px 16px;border-radius:0 999px 999px 0;color:var(--tx);text-decoration:none}.sb a.on{background:color-mix(in srgb,var(--pr) 16%,transparent);color:var(--pr);font-weight:600}
-.meter{padding:16px}.ct{margin-left:230px;padding:14px 20px 90px}.gh{margin:20px 0 8px;font-weight:600}.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px}
-.t{position:relative;aspect-ratio:1;background:var(--bd);border-radius:8px;overflow:hidden;cursor:pointer}.t img,.t video{width:100%;height:100%;object-fit:cover;display:block}
-.t .ck{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:#0005;color:#fff;display:grid;place-items:center;font-size:14px;opacity:0}.t:hover .ck,.sm .ck{opacity:1}
-.sel{outline:3px solid var(--pr);outline-offset:-3px}.sel .ck{background:var(--pr);border-color:var(--pr)}.t .bd,.t .st{position:absolute;color:#fff;font-size:.85rem;text-shadow:0 1px 3px #000}.t .bd{bottom:6px;left:8px}.t .st{bottom:6px;right:8px;color:#fbbf24}
-.doc{height:100%;display:grid;place-items:center;text-align:center;font-size:2rem;padding:8px}.doc small{display:block;font-size:.7rem;overflow:hidden;text-overflow:ellipsis;max-width:120px;white-space:nowrap}
-.fab{position:fixed;right:18px;bottom:78px;width:56px;height:56px;border-radius:50%;font-size:1.6rem;display:none;padding:0;z-index:15;box-shadow:0 6px 20px #0004}
-.mo{position:fixed;inset:0;background:#000b;z-index:50;display:none;align-items:center;justify-content:center}.mo.on{display:flex}.dl{background:var(--card);border-radius:18px;width:min(720px,94vw);max-height:92vh;overflow:auto;padding:18px}
-.dz{border:2px dashed var(--bd);border-radius:14px;padding:24px;text-align:center;cursor:pointer;color:var(--mu);display:block}.qr{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}
-.qt{width:54px;height:54px;border-radius:8px;overflow:hidden;background:var(--bd);flex:none;display:grid;place-items:center}.qt img,.qt video{width:100%;height:100%;object-fit:cover}.qm{flex:1;min-width:0}.qn{display:flex;align-items:center;gap:4px}
-.qn input{padding:6px 8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);min-width:0;flex:1}.ss{font-size:.8rem;color:var(--mu)}.pb{height:4px;background:var(--bd);border-radius:2px;margin-top:4px}.pb i{display:block;height:100%;width:0;background:var(--pr);border-radius:2px}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.chip{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:999px;padding:6px 12px;cursor:pointer}.chip.on{background:var(--pr);color:#fff;border-color:var(--pr)}
-select{padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}.cw{position:relative;display:inline-block;touch-action:none;max-width:100%}#ec{max-width:100%;max-height:44vh;display:block}
-#cr{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px #0008;display:none;pointer-events:none}
-#lb{position:fixed;inset:0;background:#000;z-index:60;display:none;flex-direction:column;color:#fff}#lb.on{display:flex}#lbm{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}#lbm img,#lbm video{max-width:100%;max-height:100%;object-fit:contain}
-.lbt{display:flex;align-items:center;gap:4px;padding:8px 12px}.lbt .ib{color:#fff}.lbt .ib:hover{background:#fff2}.nv{position:absolute;top:50%;background:#fff2;color:#fff}#pv{left:10px}#nx{right:10px}
-.ts{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:8px;z-index:99}.emp{text-align:center;color:var(--mu);padding:70px 0}.ft{text-align:center;color:var(--mu);font-size:.85rem;margin-top:40px}
-@media(max-width:800px){.sb{top:auto;height:58px;width:100%;display:flex;padding:0;background:var(--card);border-top:1px solid var(--bd);z-index:20}.sb a{flex:1;flex-direction:column;align-items:center;gap:0;font-size:.68rem;border-radius:0;padding:6px 2px}.meter{display:none}.ct{margin-left:0}.logo span,#upb{display:none}.fab{display:block}.t .ck{opacity:1}}
+DASH = r"""<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body.app{--bg:#e6d3ae;--card:#eadfbf;--tx:#1c1209;--mu:#6b5640;--pr:#2b5a52;--bd:#1c1209;font-family:'Oswald','Arial Narrow',Impact,sans-serif;background:repeating-linear-gradient(45deg,#c9ab7e 0 6px,#c3a374 6px 12px)}
+body.app .btn{border-radius:5px;text-transform:uppercase;letter-spacing:.06em;font-family:inherit}body.app input[type=text]{font-family:inherit}
+.wr{max-width:1100px;margin:0 auto;padding:16px 16px 70px}.hd{background:#5a3a24;border:2px solid #1c1209;border-radius:8px;padding:16px;color:#eadfbf}
+.h1,.h2{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.h2{margin-top:14px}.lg{font-size:1.7rem;color:#eadfbf;text-decoration:none;white-space:nowrap}.lg b{color:#d2492b;font-weight:500}
+.sr{flex:1;min-width:200px}.sr input{background:#fbf6e6;border:2px solid #1c1209;border-radius:5px;padding:13px 14px;font-size:1.05rem}.tl{background:#2b5a52!important;color:#fff!important;border:2px solid #1c1209!important}
+.hb{background:transparent;color:#eadfbf;border:2px solid #1c1209;border-radius:5px;padding:12px 18px;font:500 .95rem Oswald,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;list-style:none}
+.mm{position:relative}.mm[open] .hb{background:#fbf6e6;color:#1c1209}.pp{position:absolute;top:50px;left:0;z-index:30;background:#fbf6e6;border:2px solid #1c1209;border-radius:6px;padding:6px;min-width:190px;display:flex;flex-direction:column}.pp a,.pp button{padding:10px 12px;color:#1c1209;text-decoration:none;background:none;border:0;text-align:left;font:inherit;cursor:pointer}
+#sb2{position:fixed;top:0;left:0;right:0;z-index:40;height:58px;display:none;align-items:center;gap:10px;padding:8px 14px;background:#5a3a24;color:#eadfbf;border-bottom:2px solid #1c1209}#sb2 .ib{color:#eadfbf}#sb2 .chip{background:#eadfbf;color:#1c1209;border-color:#1c1209}
+.st2{display:flex;gap:22px;flex-wrap:wrap;margin:16px 4px;color:#1c1209}.fl{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.ch{border:2px solid #1c1209;border-radius:999px;padding:8px 22px;text-decoration:none;color:#1c1209;text-transform:uppercase;letter-spacing:.06em;font-size:.95rem}.ch.on{background:#1c1209;color:#eadfbf}
+.fl select{background:#fbf6e6;border:1px solid #1c1209;padding:11px 12px;font:inherit;border-radius:5px}.mf{display:flex;gap:14px;align-items:center;margin:22px 0 14px;letter-spacing:.25em;font-weight:400;color:#3a2a1a;text-transform:none}.mf:after{content:"";flex:1;border-top:2px solid #8a7050}
+.cg{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:22px 14px}@media(min-width:700px){.cg{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}}
+.cd{background:#eadfbf;border:2px solid #1c1209;border-radius:8px;box-shadow:0 4px 0 #0003;overflow:hidden;position:relative}.cd.sel{outline:4px solid #2b5a52;outline-offset:-4px}
+.th{position:relative;height:200px;background:#1c1209;cursor:pointer;display:grid;place-items:center;overflow:hidden}.th img,.th video{width:100%;height:100%;object-fit:cover;display:block}.th .dc{font-size:3rem;color:#eadfbf;text-align:center}
+.stamp{position:absolute;top:10px;right:10px;transform:rotate(-5deg);border:2px solid #b8341c;color:#b8341c;background:#eadfbfee;padding:2px 10px;font-weight:500;letter-spacing:.08em;font-size:.85rem;border-radius:3px;text-transform:uppercase}
+.ck{position:absolute;top:10px;left:10px;width:28px;height:28px;border-radius:50%;border:2px solid #fff;background:#0006;color:#fff;display:none;place-items:center}.sm .ck{display:grid}.sel .ck{background:#2b5a52}
+.cb{padding:12px 14px 4px}.nm{font-size:1rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds{color:#5b4730;font-size:.95rem;min-height:1.3em;margin:4px 0 8px}
+.mr{display:flex;justify-content:space-between;gap:6px;padding:8px 0;border-top:1px dashed #8a7050;font-size:.85rem}.mr code{font-family:ui-monospace,monospace;font-size:.82rem}.mu2{color:#5b4730}
+.bt{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px 12px 12px}.bt button,.bt a{font:500 .82rem Oswald,sans-serif;letter-spacing:.05em;text-transform:uppercase;border:2px solid #1c1209;background:#eadfbf;color:#1c1209;border-radius:5px;padding:13px 2px;text-align:center;text-decoration:none;cursor:pointer}
+.bt .tl{background:#2b5a52;color:#fff}.bt .rd{background:#b8341c;color:#fff;border-color:#1c1209}
+.dl,.dz,.chip,#lb{font-family:inherit}.mo{background:#000b}.dl{border:2px solid #1c1209}.ts{background:#1c1209}
+@media(max-width:600px){.ct{margin:0}}
 </style>
-<header class="tb"><a class="logo" href="/">☁️ <span>YIM CLOUD STORAGE</span></a>
-<form class="sr" method="get"><input type="hidden" name="k" value="{{k}}"><input type="text" name="s" value="{{qs}}" placeholder="Search your files"></form>
-<button class="btn" id="upb">⬆ Upload</button>
-<details class="me"><summary class="av">{{ session.uname[:1]|upper }}</summary><div class="pop"><b>{{ session.uname }}</b><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="btn sm gray" style="margin-top:8px">Logout</button></form></div></details></header>
-<div id="sb2"><button class="ib" onclick="sel.clear();selUpdate()">✕</button><b id="sn" style="flex:1"></b>
+<div class="wr">
+<header class="hd"><div class="h1"><a class="lg" href="/">YIM <b>CLOUD STORAGE</b></a>
+<form class="sr" method="get"><input type="hidden" name="k" value="{{k}}"><input type="hidden" name="o" value="{{o}}"><input type="text" name="s" value="{{qs}}" placeholder="🔍 Search the manifest…"></form>
+<button class="btn tl" id="upb">+ New parcel</button></div>
+<div class="h2"><button class="hb" id="selb">Select</button>
+<details class="mm"><summary class="hb">··· More</summary><div class="pp"><a href="/?k=fav">★ Favorites</a><a href="/?k=trash">🗑 Trash</a>
+{% if k=='trash' and items %}<form method="post" action="/empty-trash" onsubmit="return confirm('Delete everything in Trash forever?')"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>⚠ Empty trash</button></form>{% endif %}</div></details>
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="hb">Sign out</button></form></div></header>
+<div id="sb2"><button class="ib" onclick="sel.clear();selMode=0;selUpdate()">✕</button><b id="sn" style="flex:1"></b>
 {% if k=='trash' %}<button class="chip" onclick="bulk('restore')">♻ Restore</button><button class="chip" onclick="confirm('Delete forever?')&&bulk('purge')">Delete forever</button>
-{% else %}<button class="ib" title="Favorite" onclick="bulk('fav')">★</button><button class="ib" title="Move to trash" onclick="bulk('trash')">🗑</button>{% endif %}</div>
-<nav class="sb">{% for t,i,l in [('all','🖼','All'),('image','📷','Photos'),('video','🎬','Videos'),('file','📄','Files'),('fav','★','Favorites'),('trash','🗑','Trash')] %}<a class="{{ 'on' if k==t }}" href="/?k={{t}}"><span>{{i}}</span>{{l}}</a>{% endfor %}
-<div class="meter"><div class="bar"><i style="width:{{ [100, used*100/cap]|min }}%"></i></div><span class="mu">{{ hs(used) }} of {{ hs(cap) }}</span></div></nav>
-<div class="ct">
-{% if k=='trash' and items %}<p class="mu">Items in Trash can be restored or deleted forever.</p>{% endif %}
-{% if not items %}<div class="emp"><div style="font-size:3rem">☁️</div><p>{{ 'Nothing here yet.' if k!='all' or qs else 'Your cloud is empty. Upload photos, videos and files!' }}</p></div>{% endif %}
-{% for lbl,rs in groups %}<div class="gh">{{lbl}}</div><div class="g">{% for r in rs %}<div class="t" data-i="{{r.i}}" data-id="{{r.id}}">
-{% if r.kind=='image' %}<img loading="lazy" decoding="async" src="/f/{{r.id}}" alt="">{% elif r.kind=='video' %}<video muted preload="metadata" src="/f/{{r.id}}#t=0.1"></video><span class="bd">▶</span>{% else %}<div class="doc">📄<small>{{r.name}}</small></div>{% endif %}
-<span class="ck">✓</span>{% if r.favorite %}<span class="st">★</span>{% endif %}</div>{% endfor %}</div>{% endfor %}
+{% else %}<button class="ib" onclick="bulk('fav')">★</button><button class="ib" onclick="bulk('trash')">🗑</button>{% endif %}</div>
+<div class="st2"><span><b>{{ items|length }}</b> parcels loaded</span><span><b>{{ hs(used) }}</b> used</span><span>last shipped <b>{{ last }}</b></span></div>
+<div class="fl">{% for t,l in [('all','All'),('image','Image'),('video','Video'),('file','File')] %}<a class="ch {{ 'on' if k==t }}" href="/?k={{t}}&o={{o}}">{{l}}</a>{% endfor %}
+<form method="get"><input type="hidden" name="k" value="{{k}}"><input type="hidden" name="s" value="{{qs}}"><select name="o" onchange="this.form.submit()">{% for v,l in [('new','Newest first'),('old','Oldest first'),('big','Largest first'),('name','Name A–Z')] %}<option value="{{v}}" {{ 'selected' if o==v }}>{{l}}</option>{% endfor %}</select></form></div>
+<h4 class="mf">{{ 'Trash' if k=='trash' else 'Manifest' }}</h4>
+{% if not items %}<p style="text-align:center;padding:50px 0;color:#3a2a1a">{{ 'Nothing here yet.' if k!='all' or qs else 'No parcels yet — hit NEW PARCEL to upload your first.' }}</p>{% endif %}
+<div class="cg">{% for r in rows %}<div class="cd" data-i="{{r.i}}" data-id="{{r.id}}">
+<div class="th" data-a="pv">{% if r.kind=='image' %}<img loading="lazy" decoding="async" src="/f/{{r.id}}" alt="">{% elif r.kind=='video' %}<video muted preload="metadata" src="/f/{{r.id}}#t=0.1"></video>{% else %}<div class="dc">📄</div>{% endif %}<span class="stamp">{{ r.kind }}</span><span class="ck">✓</span></div>
+<div class="cb"><div class="nm">{{r.name}}</div><div class="ds">{{ r.description or '(no description)' }}</div>
+<div class="mr"><code>#{{r.sid}}</code><span>{{r.dt}}</span></div>
+<div class="mr mu2"><span>👁 {{r.share_views}} views</span><span>{{ r.lv }}</span></div></div>
+<div class="bt"><button data-a="pv">Preview</button>{% if k=='trash' %}<button class="tl" data-a="rs">Restore</button>{% else %}<button class="tl" data-a="sh">Share</button>{% endif %}<a href="/f/{{r.id}}?dl=1">↓ Download</a>
+{% if k=='trash' %}<button class="rd" data-a="rm" style="grid-column:span 3">Delete forever</button>{% else %}<button data-a="ed">Edit</button><button data-a="fv">{{ '★' if r.favorite else '☆' }}</button><button class="rd" data-a="rm">Delete</button>{% endif %}</div></div>{% endfor %}</div>
 <div class="ft">DEVELOPED BY SYMOH TECH</div></div>
-<button class="btn fab" id="fab">+</button>
-
+<div class="mo" id="md"><div class="dl" style="max-width:420px"><h3 style="margin-top:0">Edit parcel</h3><label>Name</label><input type="text" id="mn"><label>Description</label><input type="text" id="mdsc" maxlength="300"><div class="row" style="justify-content:flex-end"><button class="btn gray" id="mx">Cancel</button><button class="btn" id="ms">Save</button></div></div></div>
 <div class="mo" id="um"><div class="dl"><div class="row"><h3 style="margin:0;flex:1">Upload</h3><button class="ib" id="uc">✕</button></div>
 <label class="dz" id="dz"><input type="file" id="pick" multiple hidden>Drop files here or <b style="color:var(--pr)">browse</b></label>
 <div class="row"><span>Auto-shrink:</span><select id="qs"><option value="o">Original (no shrink)</option><option value="h">High (2560px / 1080p)</option><option value="m" selected>Medium (1920px / 720p)</option><option value="l">Low (1280px / 480p)</option></select></div>
@@ -365,11 +372,25 @@ const hs=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':n<1073741824?(n/10
 function toast(m){const t=document.createElement('div');t.className='ts';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),3200)}
 FL.forEach(f=>toast(f[1]));
 const copy=u=>(navigator.clipboard?navigator.clipboard.writeText(u).then(()=>toast('Link copied')):Promise.reject()).catch(()=>prompt('Copy link',u));
-/* selection */
-const sel=new Set();
-function selUpdate(){$('#sb2').style.display=sel.size?'flex':'none';$('#sn').textContent=sel.size+' selected';document.body.classList.toggle('sm',sel.size>0);$$('.t').forEach(t=>t.classList.toggle('sel',sel.has(+t.dataset.id)))}
-$$('.t').forEach(t=>t.onclick=e=>{const id=+t.dataset.id;if(e.target.closest('.ck')||sel.size){sel.has(id)?sel.delete(id):sel.add(id);selUpdate()}else openLb(+t.dataset.i)});
+/* selection + cards */
+const sel=new Set();let selMode=0;
+function selUpdate(){const on=selMode||sel.size>0;$('#sb2').style.display=on?'flex':'none';$('#sn').textContent=sel.size+' selected';document.body.classList.toggle('sm',on);$$('.cd').forEach(t=>t.classList.toggle('sel',sel.has(+t.dataset.id)))}
+$('#selb').onclick=()=>{selMode=!selMode;if(!selMode)sel.clear();selUpdate()};
 async function bulk(a){await pj('/api/bulk',{ids:[...sel],action:a});location.reload()}
+let mi=0;
+$('.cg').onclick=async e=>{const c=e.target.closest('.cd');if(!c)return;const id=+c.dataset.id,i=+c.dataset.i,x=ITEMS[i],b=e.target.closest('[data-a]');
+ if(selMode||sel.size){e.preventDefault();sel.has(id)?sel.delete(id):sel.add(id);selUpdate();return}
+ const a=b&&b.dataset.a;if(!a)return;
+ if(a==='pv')openLb(i);
+ else if(a==='sh'){if(!x.u){const r=await post('/share/'+id,new URLSearchParams({days:0}));x.u=(await r.json()).url}copy(x.u)}
+ else if(a==='fv'){await post('/fav/'+id);x.f=!x.f;b.textContent=x.f?'★':'☆'}
+ else if(a==='ed'){mi=i;$('#mn').value=x.n;$('#mdsc').value=x.ds||'';mo('#md',true)}
+ else if(a==='rs'){await post('/restore/'+id);c.remove();toast('Restored')}
+ else if(a==='rm'){if(!confirm(K==='trash'?'Delete forever?':'Move to Trash?'))return;await post(K==='trash'?'/purge/'+id:'/trash/'+id);c.remove();toast(K==='trash'?'Deleted':'Moved to Trash')}};
+$('#mx').onclick=()=>mo('#md',false);
+$('#ms').onclick=async()=>{const x=ITEMS[mi],n=$('#mn').value.trim(),ds=$('#mdsc').value.trim();if(!n)return;
+ const r=await pj('/api/meta/'+x.id,{name:n,description:ds});if(!r.ok)return toast('Could not save');x.n=n;x.ds=ds;
+ const c=$(`.cd[data-i="${mi}"]`);c.querySelector('.nm').textContent=n;c.querySelector('.ds').textContent=ds||'(no description)';mo('#md',false);toast('Saved')};
 /* lightbox */
 let li=0,dirty=0;
 function openLb(i){if(i<0||i>=ITEMS.length)return;li=i;const x=ITEMS[i],m=$('#lbm');m.innerHTML='';
@@ -420,7 +441,7 @@ function refresh(st){const r=st.el,q=r.querySelector('.qt');r.querySelector('.ex
  const u=URL.createObjectURL(st.blob);q.innerHTML='';if(st.kind==='image'){const i=new Image();i.src=u;q.append(i)}else if(st.kind==='video'){const v=document.createElement('video');v.src=u+'#t=0.1';v.muted=true;v.preload='metadata';q.append(v)}else q.textContent='📄'}
 $('#pick').onchange=e=>{addFiles(e.target.files);e.target.value=''};
 ['dragover','drop'].forEach(n=>document.addEventListener(n,e=>{e.preventDefault();if(n==='drop'&&e.dataTransfer.files.length){mo('#um',true);addFiles(e.dataTransfer.files)}}));
-$('#upb').onclick=$('#fab').onclick=()=>mo('#um',true);$('#uc').onclick=()=>{if(!S.some(s=>s.busy))mo('#um',false)};
+$('#upb').onclick=()=>mo('#um',true);$('#uc').onclick=()=>{if(!S.some(s=>s.busy))mo('#um',false)};
 function xhr(method,url,body,type,cb){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open(method,url);if(type)x.setRequestHeader('Content-Type',type);x.setRequestHeader('X-CSRF',CSRF);
  x.upload.onprogress=e=>e.lengthComputable&&cb(e.loaded/e.total);
  x.onload=()=>x.status<300?ok():no(new Error((()=>{try{return JSON.parse(x.responseText).error}catch(e){return 'Upload failed'}})()));x.onerror=()=>no(new Error('Network error — check bucket CORS'));x.send(body)})}
@@ -461,29 +482,31 @@ $('#ed').onclick=()=>{applyCrop();const b=E.base,W=Math.max(16,+$('#rw').value||
 </script>{% endraw %}
 """
 
+ORDER = {"new": "created_at DESC", "old": "created_at ASC", "big": "size DESC", "name": "lower(name) ASC"}
+
 @app.route("/")
 @login_required
 def home():
-    k, qs = request.args.get("k", "all"), request.args.get("s", "").strip()
+    k, qs, o = request.args.get("k", "all"), request.args.get("s", "").strip(), request.args.get("o", "new")
+    if o not in ORDER: o = "new"
     where, args = "user_id=%s AND ready", [session["uid"]]
     where += " AND trashed_at IS NOT NULL" if k == "trash" else " AND trashed_at IS NULL"
     if k == "fav": where += " AND favorite"
     if k in ("image", "video", "file"): where += " AND kind=%s"; args.append(k)
-    if qs: where += " AND name ILIKE %s"; args.append(f"%{qs}%")
-    rows = q(f"SELECT id,name,kind,size,favorite,share_slug,created_at FROM files WHERE {where} ORDER BY created_at DESC", args)
+    if qs: where += " AND (name ILIKE %s OR description ILIKE %s)"; args += [f"%{qs}%"] * 2
+    rows = q(f"SELECT id,name,kind,size,favorite,share_slug,share_views,share_last_view,description,created_at FROM files WHERE {where} ORDER BY {ORDER[o]}", args)
     used, base = used_bytes(session["uid"]), base_url()
-    today = datetime.now(timezone.utc).date()
-    groups, items = [], []
+    items = []
     for r in rows:
-        d = r["created_at"].date()
-        lbl = "Today" if d == today else "Yesterday" if d == today - timedelta(days=1) else d.strftime("%a, %d %b %Y")
         r["i"] = len(items)
-        items.append({"id": r["id"], "n": r["name"], "k": r["kind"], "s": human(r["size"]), "f": bool(r["favorite"]),
-                      "u": f"{base}/s/{r['share_slug']}" if r["share_slug"] else "", "d": d.isoformat()})
-        if not groups or groups[-1][0] != lbl: groups.append((lbl, []))
-        groups[-1][1].append(r)
-    return page(DASH, "YIM CLOUD STORAGE", full=True, groups=groups, items=items, k=k, qs=qs, used=used, cap=CAP,
-                hs=human, s3=S3_ON, fl=get_flashed_messages(with_categories=True))
+        r["sid"] = hashlib.sha1(f"{r['id']}-{r['created_at']}".encode()).hexdigest()[:10]
+        r["dt"] = r["created_at"].strftime("%d/%m/%Y")
+        r["lv"] = r["share_last_view"].strftime("%d/%m/%Y") if r["share_last_view"] else "never viewed"
+        items.append({"id": r["id"], "n": r["name"], "ds": r["description"] or "", "k": r["kind"], "s": human(r["size"]),
+                      "f": bool(r["favorite"]), "u": f"{base}/s/{r['share_slug']}" if r["share_slug"] else "", "d": r["dt"]})
+    last = max((r["created_at"] for r in rows), default=None)
+    return page(DASH, "YIM CLOUD STORAGE", full=True, rows=rows, items=items, k=k, qs=qs, o=o, used=used,
+                hs=human, s3=S3_ON, last=last.strftime("%d/%m/%Y") if last else "—", fl=get_flashed_messages(with_categories=True))
 
 @app.route("/api/bulk", methods=["POST"])
 @login_required
@@ -553,7 +576,7 @@ def serve(fid):
 def shared(slug):
     f = q("SELECT id FROM files WHERE share_slug=%s AND ready AND trashed_at IS NULL AND (share_expires_at IS NULL OR share_expires_at>now())", (slug.lower(),), one=True)
     if not f: abort(404)
-    q("UPDATE files SET share_views=share_views+1 WHERE id=%s", (f["id"],))
+    q("UPDATE files SET share_views=share_views+1, share_last_view=now() WHERE id=%s", (f["id"],))
     return send_row(f["id"], bool(request.args.get("dl")))
 
 def back(): return {"ok": True} if request.headers.get("X-CSRF") else redirect(request.referrer or url_for("home"))
@@ -604,3 +627,12 @@ def purge(fid):
 def empty_trash():
     purge_rows(q("SELECT id,s3_key FROM files WHERE user_id=%s AND trashed_at IS NOT NULL", (session["uid"],)))
     flash("Trash emptied."); return redirect(url_for("home", k="trash"))
+
+@app.route("/api/meta/<int:fid>", methods=["POST"])
+@login_required
+def api_meta(fid):
+    own(fid); j = request.get_json(silent=True) or {}
+    n = os.path.basename(str(j.get("name", "")).strip())[:200]
+    if not n: return {"error": "Name required"}, 400
+    q("UPDATE files SET name=%s, description=%s WHERE id=%s", (n, str(j.get("description", "")).strip()[:300] or None, fid))
+    return {"ok": True}
