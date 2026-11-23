@@ -1,10 +1,9 @@
 # YIM CLOUD STORAGE
-Flask + Neon Postgres (project MANUSTORE). Deploy on Vercel.
+Flask + Neon Postgres (MANUSTORE) + S3-compatible bucket. Deploy on Vercel.
 
-1. Tables already created in Neon (`schema.sql` if you need to re-run).
-2. Push this folder to GitHub, import in Vercel.
-3. Add env vars from `.env.example` (DATABASE_URL, SECRET_KEY, APP_URL, SMTP_*).
-4. Deploy.
+1. Push this folder to a PRIVATE GitHub repo and import it in Vercel.
+2. Add the variables from `.env.example` (DATABASE_URL, SECRET_KEY, APP_URL, NEON_AUTH_URL, S3_*).
+3. Files are stored in the private Neon bucket `yim-files`. If browser uploads fail with a network/CORS error, tell the developer.
+4. Deploy. Tables are already created in Neon (`schema.sql` re-runs safely).
 
-Limit: Vercel functions accept ~4.5 MB per request, so uploads are capped at 4 MB.
-For larger videos, move storage to Vercel Blob / S3 with direct client uploads.
+Emails (verification code, password reset) are sent by Neon Auth. Add your Vercel domain under Neon Auth > Trusted domains.
