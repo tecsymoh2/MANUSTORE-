@@ -32,6 +32,12 @@ class FixPath:
         return self.a(environ, start_response)
 app.wsgi_app = FixPath(app.wsgi_app)
 
+@app.errorhandler(500)
+def server_error(e):
+    app.logger.exception("Server error")
+    detail = f"<p>{type(e.original_exception).__name__}: {e.original_exception}</p>" if os.environ.get("DEBUG") and getattr(e, "original_exception", None) else ""
+    return f"<h3>Something went wrong</h3>{detail}<p><a href='/'>Go home</a></p>", 500
+
 @app.errorhandler(404)
 def not_found(e):
     return f'<h3>Page not found</h3><p>Path seen by server: {request.path}</p><p><a href="/">Go home</a></p>', 404
@@ -263,7 +269,7 @@ def human(n):
     return f"{n:.1f} TB"
 
 def used_bytes(uid):
-    return q("SELECT COALESCE(sum(size),0) s FROM files WHERE user_id=%s AND ready", (uid,), one=True)["s"]
+    return int(q("SELECT COALESCE(sum(size),0) s FROM files WHERE user_id=%s AND ready", (uid,), one=True)["s"])
 
 def own(fid):
     r = q("SELECT * FROM files WHERE id=%s AND user_id=%s", (fid, session["uid"]), one=True)
