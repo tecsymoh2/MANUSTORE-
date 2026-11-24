@@ -1,10 +1,11 @@
 from urllib.parse import parse_qsl, urlencode
-import os, re, hmac, json, hashlib, secrets, mimetypes, urllib.request, urllib.error
+import os, re, time, hmac, json, hashlib, smtplib, ssl, urllib.parse, secrets, mimetypes, urllib.request, urllib.error
 from datetime import timedelta, datetime, timezone
 from functools import wraps
 import psycopg2, psycopg2.extras
 from markupsafe import escape
-from flask import (Flask, request, session, redirect, url_for, flash,
+from email.message import EmailMessage
+from flask import (g, Flask, request, session, redirect, url_for, flash,
                    render_template_string, Response, abort, get_flashed_messages)
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -73,10 +74,30 @@ def emsg(d): return d.get("message") or "Something went wrong. Please try again.
 
 def base_url(): return os.environ.get("APP_URL", request.host_url).rstrip("/")
 
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+GB = 2 ** 30
+
+def user():
+    if "u" not in g:
+        g.u = q("SELECT id,username,email,quota_bytes,is_admin,blocked FROM users WHERE id=%s", (session["uid"],), one=True) if session.get("uid") else None
+    return g.u
+
+def is_admin(u): return bool(u and (u["is_admin"] or u["email"] in ADMIN_EMAILS))
+
 def login_required(f):
     @wraps(f)
     def w(*a, **k):
-        if not session.get("uid"): return redirect(url_for("login"))
+        u = user()
+        if not u or u["blocked"]: session.clear(); return redirect(url_for("login"))
+        return f(*a, **k)
+    return w
+
+def admin_required(f):
+    @wraps(f)
+    def w(*a, **k):
+        u = user()
+        if not u or u["blocked"]: session.clear(); return redirect(url_for("login"))
+        if not is_admin(u): abort(404)
         return f(*a, **k)
     return w
 
@@ -86,7 +107,7 @@ def csrf_ok():
 @app.before_request
 def guard():
     session.setdefault("csrf", secrets.token_hex(16))
-    if request.method == "POST" and not csrf_ok(): abort(400, "Bad CSRF token")
+    if request.method == "POST" and request.path != "/api/pay/webhook" and not csrf_ok(): abort(400, "Bad CSRF token")
 
 def kind_of(mime):
     return "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "file"
@@ -373,6 +394,9 @@ input[type=text],input[type=url],textarea,select{color:var(--ink)}.app input[typ
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;justify-content:center}.cw{position:relative;display:inline-block;touch-action:none;max-width:100%}#ec{max-width:100%;max-height:42vh;display:block;border:2px solid var(--ink);background:#000}
 #cr{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px #0008;display:none;pointer-events:none}.row label{font-size:11px;text-transform:uppercase;letter-spacing:.08em}
 .cm-i{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-size:13px;text-align:left}.hb2{display:flex;justify-content:space-between;gap:6px;font-size:10.5px;color:var(--crate-dark)}
+.plan{display:flex;gap:10px;align-items:center;justify-content:space-between;border:2px solid var(--ink);border-radius:4px;padding:12px;background:var(--surface);cursor:pointer}.plan input[type=radio]{width:auto}.plan span:first-of-type{flex:1}
+.tw{overflow-x:auto}.at{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--tag);border:2px solid var(--ink)}.at th,.at td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.at th{font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.app textarea{font-family:inherit}
 """
 
 LAYOUT = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -416,8 +440,9 @@ def register():
             code, d = neon_auth("/sign-up/email", {"name": u, "email": e, "password": p})
             if code >= 400 or code == 0: flash(emsg(d), "error")
             else:
-                q("INSERT INTO users(username,email,auth_id,verified) VALUES(%s,%s,%s,FALSE) ON CONFLICT DO NOTHING",
-                  (u, e, (d.get("user") or {}).get("id")))
+                q("INSERT INTO users(username,email,auth_id,verified,welcomed,quota_bytes) VALUES(%s,%s,%s,FALSE,FALSE,%s) ON CONFLICT DO NOTHING",
+                  (u, e, (d.get("user") or {}).get("id"), int(float(settings_all()["free_gb"]) * GB)))
+                log_act(None, "signup", e)
                 flash("Account created! We emailed you a verification code.")
                 return redirect(url_for("verify", email=e))
     return page("""<div><h2>Create account</h2><form method="post">""" + CSRF + """
@@ -437,7 +462,7 @@ def verify():
         else:
             code, d = neon_auth("/email-otp/verify-email", {"email": email, "otp": request.form["otp"].strip()})
             if code == 200:
-                q("UPDATE users SET verified=TRUE WHERE email=%s", (email,))
+                welcome(email)
                 flash("Email verified! You can log in now."); return redirect(url_for("login"))
             flash(emsg(d), "error")
     return page("""<div><h2>Verify your email</h2><p class="mu">Enter the code we emailed you.</p><form method="post">""" + CSRF + """
@@ -461,7 +486,9 @@ def login():
                 nm = uniq_username(d["user"].get("name") or email.split("@")[0])
                 u = q("INSERT INTO users(username,email,auth_id,verified) VALUES(%s,%s,%s,TRUE) RETURNING id,username",
                       (nm, email, d["user"].get("id")), one=True)
-            else: q("UPDATE users SET verified=TRUE WHERE id=%s", (u["id"],))
+            else:
+                if u.get("blocked"): flash("This account has been suspended.", "error"); return redirect(url_for("login"))
+                welcome(email)
             session.clear(); session.permanent = True
             session.update(uid=u["id"], uname=u["username"], csrf=secrets.token_hex(16))
             return redirect(url_for("home"))
@@ -567,11 +594,12 @@ DASH = r"""<div class="app">
 <button class="btn ghost" id="themeb" style="justify-content:flex-start">🌙 Dark mode</button>
 <a class="btn ghost" href="/?k=fav" style="justify-content:flex-start;text-decoration:none">★ Favorites</a>
 <a class="btn ghost" href="/?k=trash" style="justify-content:flex-start;text-decoration:none">🗑 Trash</a>
+{% if admin %}<a class="btn ghost" href="/admin" style="justify-content:flex-start;text-decoration:none">⚙ Admin</a>{% endif %}
 {% if k=='trash' and items %}<button class="btn ghost" id="emptyb" style="justify-content:flex-start">⚠ Empty trash</button>{% endif %}</div></div>
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="btn ghost">Sign out</button></form></div>
-{% if used*100/cap>=90 %}<div class="offline-banner">⚠ Storage is almost full ({{ hs(used) }} of {{ hs(cap) }}).</div>{% endif %}
+{% if used>=cap %}<div class="offline-banner">🚫 Your storage is full. <a href="#" onclick="openPlans();return false" style="color:#fff;text-decoration:underline">See plans</a> to keep uploading.</div>{% elif used*100/cap>=90 %}<div class="offline-banner" style="background:#b6944e">⚠ Almost full ({{ hs(used) }} of {{ hs(cap) }}). <a href="#" onclick="openPlans();return false" style="color:#fff;text-decoration:underline">See plans</a></div>{% endif %}
 {% for c,m in fl %}<div class="offline-banner" style="{{ '' if c=='error' else 'background:var(--teal)' }}">{{m}}</div>{% endfor %}
-<div class="stats-bar"><span><b>{{ items|length }}</b> parcels loaded</span><span><b>{{ hs(used) }}</b> used</span><span>last shipped <b>{{ last }}</b></span></div>
+<div class="stats-bar"><span><b>{{ items|length }}</b> parcels loaded</span><span><b>{{ hs(used) }}</b> of {{ hs(cap) }} used</span><span>last shipped <b>{{ last }}</b></span></div>
 <div class="bulk-bar" id="bulkbar"><span id="bc">0 selected</span><div style="display:flex;gap:6px;flex-wrap:wrap">
 {% if k=='trash' %}<button class="btn ghost sm" style="color:#fff;border-color:#fff" onclick="bulk('restore')">Restore</button><button class="btn stamp sm" style="border-color:#fff" onclick="confirm('Delete forever?')&&bulk('purge')">Delete forever</button>
 {% else %}<button class="btn ghost sm" style="color:#fff;border-color:#fff" onclick="bulkTag()">＋ Tag</button><button class="btn ghost sm" style="color:#fff;border-color:#fff" onclick="bulk('fav')">★ Favorite</button><button class="btn stamp sm" style="border-color:#fff" onclick="bulk('trash')">Delete</button>{% endif %}</div></div>
@@ -625,8 +653,14 @@ DASH = r"""<div class="app">
 <div class="row"><label>Width <input id="rw" type="number" min="16" style="width:80px;padding:5px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink)"></label><label>☀<input type="range" id="fb" min="50" max="150" value="100"></label><label>◐<input type="range" id="fc" min="50" max="150" value="100"></label><label>🎨<input type="range" id="fs" min="0" max="200" value="100"></label></div>
 <div class="intake-actions"><button class="btn ghost" id="exx">Cancel</button><button class="btn ghost" id="er">Reset</button><button class="btn stamp" id="ed">Apply</button></div></div></div>
 
+<div id="plm" class="modal-back hidden"><div class="modal" style="text-align:left;max-width:460px"><div class="display" style="font-size:18px;text-align:center">Get more storage</div>
+<div class="hint">You've used {{ hs(used) }} of {{ hs(cap) }}. Pick a plan — storage is added automatically after you pay with M-Pesa.</div>
+<div style="display:flex;flex-direction:column;gap:8px;margin:14px 0">{% for p in plans %}<label class="plan"><input type="radio" name="pl" value="{{p.id}}"><span><b>{{p.gb}} GB</b></span><span>KSh {{p.price}}</span></label>{% endfor %}
+<label class="plan"><input type="radio" name="pl" value="custom"><span><b>Custom</b> <input type="number" id="cg" min="1" max="1000" value="10" style="width:70px;padding:4px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink)"> GB</span><span id="cp"></span></label></div>
+<div class="field"><label>M-Pesa number</label><input type="text" id="ph" inputmode="tel" placeholder="07xx xxx xxx"></div>
+<div id="pm" class="hint"></div><button class="btn stamp block" id="pb">Pay with M-Pesa</button><button class="btn ghost block" id="px" style="margin-top:8px">Close</button></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script>const CSRF="{{ session.csrf }}",S3={{ s3|tojson }},ITEMS={{ items|tojson }},K="{{ k }}";</script>
+<script>const CSRF="{{ session.csrf }}",S3={{ s3|tojson }},ITEMS={{ items|tojson }},K="{{ k }}",PER={{ per_gb }};</script>
 {% raw %}<script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const post=(u,b,h={})=>fetch(u,{method:'POST',headers:{'X-CSRF':CSRF,...h},body:b});
@@ -709,9 +743,9 @@ $('#pick').onchange=e=>{addFiles(e.target.files);e.target.value=''};
 ['dragover','drop'].forEach(n=>document.addEventListener(n,e=>{e.preventDefault();$('#dz').classList.toggle('drag-over',n==='dragover');if(n==='drop'&&e.dataTransfer.files.length){hid('#intake',1);addFiles(e.dataTransfer.files)}}));
 function xhr(method,url,body,type,cb){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open(method,url);if(type)x.setRequestHeader('Content-Type',type);x.setRequestHeader('X-CSRF',CSRF);
  x.upload.onprogress=e=>e.lengthComputable&&cb(e.loaded/e.total);
- x.onload=()=>x.status<300?ok():no(new Error((()=>{try{return JSON.parse(x.responseText).error}catch(e){return 'Upload failed'}})()));x.onerror=()=>no(new Error('Network error — check bucket CORS'));x.send(body)})}
+ x.onload=()=>x.status<300?ok():no(new Error((()=>{try{const d=JSON.parse(x.responseText);if(d.full)openPlans();return d.error}catch(e){return 'Upload failed'}})()));x.onerror=()=>no(new Error('Network error — check bucket CORS'));x.send(body)})}
 async function upOne(b,name,cb){const type=b.type||'application/octet-stream',meta={description:$('#desc').value,tags:$('#tags').value};
- if(S3){const r=await pj('/api/presign',{name,type,size:b.size,...meta}),j=await r.json();if(!r.ok)throw new Error(j.error);
+ if(S3){const r=await pj('/api/presign',{name,type,size:b.size,...meta}),j=await r.json();if(!r.ok){if(j.full)openPlans();throw new Error(j.error)}
   await xhr('PUT',j.url,b,type,cb);const d=await post('/api/done/'+j.id);if(!d.ok)throw new Error('Could not finish upload')}
  else{const fd=new FormData();fd.append('file',b,name);fd.append('description',meta.description);fd.append('tags',meta.tags);await xhr('POST','/upload',fd,null,cb)}}
 $('#ug').onclick=async()=>{if(!S.length)return;$('#ug').disabled=true;let ok=0;const q=Q[$('#qs').value];
@@ -722,6 +756,18 @@ $('#ug').onclick=async()=>{if(!S.length)return;$('#ug').disabled=true;let ok=0;c
    ss.textContent='Uploading '+hs(st.orig)+' → '+hs(b.size);await upOne(b,name,p=>bar.style.width=Math.round(p*100)+'%');
    bar.style.width='100%';ss.textContent='✓ Shipped · '+hs(b.size);st.done=1;ok++}catch(e){ss.textContent='⚠ '+e.message}st.busy=0}
  $('#ug').disabled=false;if(ok){$('#us').textContent=ok+' parcel(s) shipped';setTimeout(()=>location.reload(),800)}};
+/* plans + M-Pesa */
+function openPlans(){hid('#plm',1)}$('#px').onclick=()=>hid('#plm',0);
+const upd=()=>$('#cp').textContent='KSh '+Math.max(1,+$('#cg').value||0)*PER;$('#cg').oninput=()=>{upd();document.querySelector('input[value=custom]').checked=true};upd();
+$('#pb').onclick=async()=>{const sel=document.querySelector('input[name=pl]:checked');if(!sel)return $('#pm').textContent='Pick a plan first.';
+ $('#pb').disabled=true;$('#pm').textContent='Sending M-Pesa prompt…';
+ const r=await pj('/api/pay',{plan:sel.value,gb:+$('#cg').value,phone:$('#ph').value}),j=await r.json();
+ if(!r.ok){$('#pm').textContent='⚠ '+j.error;$('#pb').disabled=false;return}
+ $('#pm').textContent='Check your phone and enter your M-Pesa PIN to pay KSh '+j.amount+'…';let n=0;
+ const t=setInterval(async()=>{n++;let s={};try{s=await (await fetch('/api/pay/'+j.id)).json()}catch(e){}
+  if(s.status==='paid'){clearInterval(t);$('#pm').textContent='✅ Payment received! +'+j.gb+' GB added.';setTimeout(()=>location.reload(),1500)}
+  else if(s.status==='failed'){clearInterval(t);$('#pm').textContent='⚠ Payment failed or was cancelled. '+(s.message||'')+' You can try again.';$('#pb').disabled=false}
+  else if(n>45){clearInterval(t);$('#pm').textContent='Still waiting… if you paid, your storage will appear shortly.';$('#pb').disabled=false}},4000)};
 /* image editor */
 let E=null,d0=null;const cw=$('#cw'),cv=$('#ec'),cr=$('#cr');
 const flt=()=>`brightness(${$('#fb').value}%) contrast(${$('#fc').value}%) saturate(${$('#fs').value}%)`;
@@ -843,7 +889,8 @@ def comment_del(cid):
 @app.route("/")
 def home():
     if request.args.get("item"): return item_page(request.args["item"])
-    if not session.get("uid"): return redirect(url_for("login"))
+    u = user()
+    if not u or u["blocked"]: session.clear(); return redirect(url_for("login"))
     k, qs, o = request.args.get("k", "all"), request.args.get("s", "").strip(), request.args.get("o", "new")
     if o not in ORDER: o = "new"
     where, args = "user_id=%s AND ready", [session["uid"]]
@@ -862,7 +909,8 @@ def home():
         items.append({"id": r["id"], "n": r["name"], "ds": r["description"] or "", "t": r["tags"] or "", "k": r["kind"], "s": human(r["size"]),
                       "f": bool(r["favorite"]), "sid": r["sid"], "u": f"{base}/?item={r['sid']}" if r["share_slug"] else ""})
     last = max((r["created_at"] for r in rows), default=None)
-    return page(DASH, "YIM CLOUD STORAGE", full=True, rows=rows, items=items, k=k, qs=qs, o=o, used=used, cap=CAP,
+    pl, per = plans()
+    return page(DASH, "YIM CLOUD STORAGE", full=True, rows=rows, items=items, k=k, qs=qs, o=o, used=used, cap=u["quota_bytes"], plans=pl, per_gb=per, admin=is_admin(u),
                 hs=human, s3=S3_ON, last=last.strftime("%d/%m/%Y") if last else "—", fl=get_flashed_messages(with_categories=True))
 
 @app.route("/api/bulk", methods=["POST"])
@@ -902,7 +950,7 @@ def api_presign():
     j = request.get_json(silent=True) or {}
     name, mime, size = os.path.basename(str(j.get("name", "")))[:200], str(j.get("type") or "application/octet-stream")[:100], int(j.get("size") or 0)
     if not name or size <= 0: return {"error": "Invalid file."}, 400
-    if used_bytes(session["uid"]) + size > CAP: return {"error": "Storage full."}, 400
+    if used_bytes(session["uid"]) + size > user()["quota_bytes"]: return {"error": "Storage full — pick a plan to keep uploading.", "full": True}, 402
     key = f"u{session['uid']}/{secrets.token_hex(8)}-{re.sub(r'[^A-Za-z0-9._-]', '_', name)}"
     r = q("INSERT INTO files(user_id,name,mime,kind,size,s3_key,ready,sid,description,tags) VALUES(%s,%s,%s,%s,%s,%s,FALSE,%s,%s,%s) RETURNING id",
           (session["uid"], name, mime, kind_of(mime), size, key, secrets.token_hex(5), str(j.get("description", "")).strip()[:300] or None, clean_tags(j.get("tags"))), one=True)
@@ -914,7 +962,7 @@ def api_done(fid):
     f = own(fid)
     try: head = s3().head_object(Bucket=os.environ["S3_BUCKET"], Key=f["s3_key"])
     except Exception: abort(400, "Upload missing")
-    q("UPDATE files SET ready=TRUE,size=%s WHERE id=%s", (head["ContentLength"], fid)); return {"ok": True}
+    q("UPDATE files SET ready=TRUE,size=%s WHERE id=%s", (head["ContentLength"], fid)); log_act(session["uid"], "upload", f["name"]); return {"ok": True}
 
 @app.route("/upload", methods=["POST"])  # fallback when S3 is not configured
 @login_required
@@ -923,7 +971,7 @@ def upload():
     if S3_ON or not f: abort(400)
     data = f.read()
     mime = f.mimetype or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
-    if used_bytes(session["uid"]) + len(data) > CAP: return {"error": "Storage full."}, 400
+    if used_bytes(session["uid"]) + len(data) > user()["quota_bytes"]: return {"error": "Storage full — pick a plan to keep uploading.", "full": True}, 402
     q("INSERT INTO files(user_id,name,mime,kind,size,data,sid,description,tags) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
       (session["uid"], os.path.basename(f.filename)[:200], mime, kind_of(mime), len(data), psycopg2.Binary(data), secrets.token_hex(5),
        request.form.get("description", "").strip()[:300] or None, clean_tags(request.form.get("tags"))))
@@ -993,3 +1041,233 @@ def api_meta(fid):
     q("UPDATE files SET name=%s, description=%s, tags=%s, sid=%s, share_slug=CASE WHEN share_slug IS NULL THEN NULL ELSE %s END WHERE id=%s",
       (n, str(j.get("description", "")).strip()[:300] or None, clean_tags(j.get("tags")), code, code, fid))
     return {"ok": True}
+
+# ---------- settings, mail, plans, payments, admin ----------
+ADMIN_TPL = r"""<div class="app">
+<div class="topbar"><div class="brand display">YIM <span>ADMIN</span></div><span style="flex:1"></span><a class="btn ghost" href="/" style="text-decoration:none">← Back to store</a></div>
+<div class="stats-bar" style="flex-wrap:wrap;gap:14px 26px"><span><b>{{st.users}}</b> users</span><span><b>{{st.verified}}</b> verified</span><span><b>{{st.new7}}</b> new (7d)</span><span><b>{{st.files}}</b> files</span><span><b>{{hs(st.bytes)}}</b> stored</span><span><b>KSh {{st.revenue}}</b> revenue</span><span><b>{{st.pending}}</b> pending payments</span></div>
+
+<div class="section-title">Payment settings (Techland M-Pesa)</div>
+<div class="intake" style="display:block">
+<div class="two-col"><div class="field"><label>API base URL</label><input type="text" data-k="pay_base" value="{{s.pay_base}}"></div><div class="field"><label>API key {{ '(saved ✓ — leave blank to keep)' if s.pay_key }}</label><input type="password" data-k="pay_key" placeholder="{{ '••••••••' if s.pay_key else 'tl_live_…' }}" autocomplete="off"></div></div>
+<div class="field"><label>Webhook signing secret {{ '(saved ✓ — leave blank to keep)' if s.pay_whsec }}</label><input type="password" data-k="pay_whsec" placeholder="{{ '••••••••' if s.pay_whsec else 'From your Techland dashboard' }}" autocomplete="off"></div>
+<div class="field"><label>Webhook URL — paste this in your Techland dashboard</label><input type="text" readonly value="{{ cb }}" onclick="this.select()"></div>
+<div class="row" style="justify-content:flex-start"><button class="btn ghost" id="pt" type="button">Test API key</button><span class="hint" id="ptm">Save first, then test.</span></div>
+<div class="section-title" style="font-size:13px">Plans &amp; free storage</div>
+<div class="two-col"><div class="field"><label>Free GB for new users</label><input type="text" data-k="free_gb" value="{{s.free_gb}}"></div><div class="field"><label>Custom plan: KSh per GB</label><input type="text" data-k="per_gb" value="{{s.per_gb}}"></div></div>
+<div class="two-col"><div class="field"><label>Plan 1: GB / KSh</label><div style="display:flex;gap:6px"><input type="text" data-k="p1_gb" value="{{s.p1_gb}}"><input type="text" data-k="p1_price" value="{{s.p1_price}}"></div></div><div class="field"><label>Plan 2: GB / KSh</label><div style="display:flex;gap:6px"><input type="text" data-k="p2_gb" value="{{s.p2_gb}}"><input type="text" data-k="p2_price" value="{{s.p2_price}}"></div></div></div>
+<button class="btn stamp" id="sv">Save settings</button> <span class="hint" id="svm"></span></div>
+
+<div class="section-title">Users</div>
+<form method="get" style="margin-bottom:10px"><input type="text" name="s" value="{{qs}}" placeholder="Search username or email" style="max-width:340px"></form>
+<div class="tw"><table class="at"><tr><th>User</th><th>Used / Quota</th><th>Files</th><th>Joined</th><th>Status</th><th>Actions</th></tr>
+{% for u in users %}<tr><td><b>{{u.username}}</b><br><span class="mu2">{{u.email}}</span></td><td>{{hs(u.used)}} / {{hs(u.quota_bytes)}}</td><td>{{u.n}}</td><td>{{u.created_at.strftime('%d/%m/%Y')}}</td>
+<td>{{ '✔ verified' if u.verified else '✖ unverified' }}{% if u.blocked %} · <b style="color:var(--stamp)">blocked</b>{% endif %}{% if u.is_admin %} · admin{% endif %}</td>
+<td style="white-space:nowrap"><button class="btn ghost sm" onclick="addgb({{u.id}})">＋ GB</button> <button class="btn ghost sm" onclick="act({{u.id}},'{{ 'unblock' if u.blocked else 'block' }}')">{{ 'Unblock' if u.blocked else 'Block' }}</button> <button class="btn ghost sm" onclick="act({{u.id}},'{{ 'unadmin' if u.is_admin else 'admin' }}')">{{ 'Remove admin' if u.is_admin else 'Make admin' }}</button></td></tr>{% endfor %}</table></div>
+
+<div class="section-title">Payments</div>
+<div class="tw"><table class="at"><tr><th>When</th><th>User</th><th>Plan</th><th>Amount</th><th>Phone</th><th>Status</th><th></th></tr>
+{% for p in pays %}<tr><td>{{p.created_at.strftime('%d/%m %H:%M')}}</td><td>{{p.username}}</td><td>{{p.gb}} GB</td><td>KSh {{p.amount}}</td><td>{{p.phone}}</td><td title="{{p.note or ''}}">{{p.status}}</td><td>{% if p.status!='paid' %}<button class="btn ghost sm" onclick="credit({{p.id}})">Mark paid</button>{% endif %}</td></tr>{% endfor %}
+{% if not pays %}<tr><td colspan="7" class="mu2">No payments yet.</td></tr>{% endif %}</table></div>
+
+<div class="section-title">Activity</div>
+<div class="tw"><table class="at"><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr>{% for a in acts %}<tr><td>{{a.created_at.strftime('%d/%m %H:%M')}}</td><td>{{a.username or '—'}}</td><td>{{a.action}}</td><td>{{a.detail or ''}}</td></tr>{% endfor %}</table></div>
+<div class="pub-foot" style="margin-top:30px">DEVELOPED BY SYMOH TECH</div></div>
+<script>const CSRF="{{ session.csrf }}";
+{% raw %}const pj=(u,o)=>fetch(u,{method:'POST',headers:{'X-CSRF':CSRF,'Content-Type':'application/json'},body:JSON.stringify(o)}).then(async r=>({ok:r.ok,j:await r.json().catch(()=>({}))}));
+async function act(id,a,gb){const r=await pj('/admin/api/user/'+id,{action:a,gb});if(!r.ok)return alert(r.j.error||'Failed');location.reload()}
+function addgb(id){const g=prompt('GB to add (negative to remove)','1');if(g&&!isNaN(+g))act(id,'addgb',+g)}
+async function credit(id){if(!confirm('Mark as paid and add the storage?'))return;const r=await pj('/admin/api/pay/'+id+'/credit',{});if(!r.ok)return alert('Failed');location.reload()}
+document.getElementById('pt').onclick=async()=>{const m=document.getElementById('ptm');m.textContent='Testing…';const r=await pj('/admin/api/pay-test',{});m.textContent=r.j.ok?'✓ API key works':'⚠ '+(r.j.error||('HTTP '+r.j.status))};
+document.getElementById('sv').onclick=async()=>{const o={};document.querySelectorAll('[data-k]').forEach(e=>o[e.dataset.k]=e.type==='checkbox'?(e.checked?'1':'0'):e.value);
+ const r=await pj('/admin/api/settings',o);document.getElementById('svm').textContent=r.ok?'✓ Saved':'⚠ '+(r.j.error||'Failed');if(r.ok)setTimeout(()=>location.reload(),700)};
+</script>{% endraw %}
+"""
+
+DEFAULTS = {"free_gb": "1", "p1_gb": "50", "p1_price": "100", "p2_gb": "100", "p2_price": "150", "per_gb": "15",
+            "pay_base": "https://techland-stk.vercel.app", "pay_key": "", "pay_whsec": ""}
+NUMERIC = ("free_gb", "p1_gb", "p1_price", "p2_gb", "p2_price", "per_gb")
+SECRETS = ("pay_key", "pay_whsec")
+
+def settings_all():
+    if "s" not in g:
+        d = dict(DEFAULTS); d.update({r["key"]: r["value"] for r in q("SELECT key,value FROM settings") if r["key"] in DEFAULTS}); g.s = d
+    return g.s
+
+def plans():
+    s = settings_all()
+    return [{"id": "p1", "gb": int(s["p1_gb"]), "price": int(s["p1_price"])}, {"id": "p2", "gb": int(s["p2_gb"]), "price": int(s["p2_price"])}], int(s["per_gb"])
+
+def log_act(uid, action, detail=""):
+    try: q("INSERT INTO activity(user_id,action,detail) VALUES(%s,%s,%s)", (uid, action, str(detail)[:300]))
+    except Exception: pass
+
+def mail(to, subject, body):
+    try:
+        m = EmailMessage(); m["From"] = os.environ.get("MAIL_FROM") or os.environ["SMTP_USER"]; m["To"], m["Subject"] = to, subject; m.set_content(body)
+        host, port = os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 587))
+        c = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=15) if port == 465 else smtplib.SMTP(host, port, timeout=15)
+        with c:
+            if port != 465: c.starttls(context=ssl.create_default_context())
+            c.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"]); c.send_message(m)
+        return True
+    except Exception:
+        log_act(None, "email_failed", to); return False
+
+def welcome(email):
+    u = q("SELECT id,username,welcomed FROM users WHERE email=%s", (email,), one=True)
+    q("UPDATE users SET verified=TRUE, welcomed=TRUE WHERE email=%s", (email,))
+    if u and not u["welcomed"]:
+        s = settings_all(); pl, per = plans(); log_act(u["id"], "verified", email)
+        mail(email, "Welcome to YIM CLOUD STORAGE — your free storage is ready",
+             f"Hi {u['username']},\n\nWelcome to YIM CLOUD STORAGE! Your account is verified and you have {s['free_gb']} GB of free storage to start with.\n\n"
+             f"Need more space later? Upgrade any time:\n • {pl[0]['gb']} GB for KSh {pl[0]['price']}\n • {pl[1]['gb']} GB for KSh {pl[1]['price']}\n • Or choose your own size at KSh {per} per GB\n\n"
+             f"Open your cloud: {base_url()}\n\n— DEVELOPED BY SYMOH TECH")
+
+def pay_call(method, path, body=None, extra=None):
+    """Techland STK API: Bearer key, JSON in/out."""
+    s = settings_all(); key = s["pay_key"]
+    if not key: return 0, {"error": "Payments are not set up yet. Please contact support."}
+    h = {"Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", **(extra or {})}
+    req = urllib.request.Request(s["pay_base"].rstrip("/") + path, data=json.dumps(body).encode() if body is not None else None, method=method, headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r: code, raw = r.status, r.read()
+    except urllib.error.HTTPError as e: code, raw = e.code, e.read()
+    except Exception: return 0, {"error": "Could not reach the payment service."}
+    try: d = json.loads(raw or b"{}")
+    except ValueError: d = {}
+    return code, d if isinstance(d, dict) else {}
+
+def credit(pid):
+    p = q("UPDATE payments SET status='paid', paid_at=now() WHERE id=%s AND status<>'paid' RETURNING user_id,gb,amount,reference", (pid,), one=True)
+    if not p: return
+    u = q("UPDATE users SET quota_bytes=quota_bytes+%s WHERE id=%s RETURNING email,username,quota_bytes", (p["gb"] * GB, p["user_id"]), one=True)
+    log_act(p["user_id"], "payment_paid", f"{p['gb']}GB KSh {p['amount']} {p['reference']}")
+    if u: mail(u["email"], "Payment received — storage added", f"Hi {u['username']},\n\nWe received KSh {p['amount']} (ref {p['reference']}). {p['gb']} GB was added to your account — your total storage is now {human(u['quota_bytes'])}.\n\nThank you!\n— YIM CLOUD STORAGE · DEVELOPED BY SYMOH TECH")
+
+def check_payment(p):
+    """Ask Techland for the payment (GET /api/v1/payments/:id) and credit/fail accordingly."""
+    if not p["checkout_id"]: return
+    code, d = pay_call("GET", "/api/v1/payments/" + urllib.parse.quote(p["checkout_id"], safe=""))
+    pay = d.get("payment") if code == 200 else None
+    if not isinstance(pay, dict): return
+    stat = str(pay.get("status", "")).upper()
+    if stat == "SUCCESS":
+        try: same = pay.get("amount") is None or int(pay["amount"]) == p["amount"]
+        except (TypeError, ValueError): same = False
+        if not same: log_act(p["user_id"], "payment_mismatch", f"{p['reference']} expected {p['amount']} got {pay.get('amount')}"); return
+        credit(p["id"])
+    elif stat in ("FAILED", "CANCELLED"):
+        q("UPDATE payments SET status='failed', note=%s WHERE id=%s AND status='pending'", (f"{stat}: {pay.get('message', '')}"[:300], p["id"]))
+
+def norm_phone(x):
+    d = re.sub(r"\D", "", x or "")
+    if d.startswith("0"): d = "254" + d[1:]
+    elif d[:1] in ("7", "1"): d = "254" + d
+    return d if re.fullmatch(r"254[17]\d{8}", d) else None
+
+@app.route("/api/pay", methods=["POST"])
+@login_required
+def api_pay():
+    j, uid = request.get_json(silent=True) or {}, session["uid"]
+    pl, per = plans(); plan = j.get("plan")
+    if plan in ("p1", "p2"): pp = next(x for x in pl if x["id"] == plan); gb, amount = pp["gb"], pp["price"]
+    elif plan == "custom":
+        try: gb = int(j.get("gb"))
+        except (TypeError, ValueError): return {"error": "Enter a number of GB."}, 400
+        if not 1 <= gb <= 1000: return {"error": "Choose between 1 and 1000 GB."}, 400
+        amount = gb * per
+    else: return {"error": "Pick a plan first."}, 400
+    phone = norm_phone(j.get("phone"))
+    if not phone: return {"error": "Enter a valid M-Pesa number, like 0712345678."}, 400
+    if q("SELECT count(*) c FROM payments WHERE user_id=%s AND created_at>now()-interval '1 hour'", (uid,), one=True)["c"] >= 6:
+        return {"error": "Too many attempts. Try again in a while."}, 429
+    ref = "YIM-" + secrets.token_hex(6).upper()
+    row = q("INSERT INTO payments(user_id,gb,amount,phone,plan,reference) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id", (uid, gb, amount, phone, plan, ref), one=True)
+    code, d = pay_call("POST", "/api/v1/payments", {"phone": phone, "amount": int(amount), "reference": "YIM STORAGE", "external_ref": ref}, {"Idempotency-Key": ref})
+    if code not in (200, 201) or not d.get("ok") or not d.get("id"):
+        q("UPDATE payments SET status='failed', note=%s WHERE id=%s", (f"HTTP {code} " + json.dumps(d)[:450], row["id"]))
+        if code == 401: log_act(None, "payment_api_key_rejected", "Check the API key in Admin")
+        msg = {401: "Payments are not set up yet. Please contact support.", 422: "That phone number or amount isn't valid.",
+               429: "Too many attempts. Please wait a few minutes and try again."}.get(code) or str(d.get("error") or "Could not start the payment. Please try again.")[:160]
+        return {"error": msg}, 502
+    q("UPDATE payments SET checkout_id=%s WHERE id=%s", (str(d["id"]), row["id"]))
+    log_act(uid, "payment_started", f"{gb}GB KSh {amount}")
+    return {"id": row["id"], "amount": amount, "gb": gb}
+
+@app.route("/api/pay/<int:pid>")
+@login_required
+def pay_poll(pid):
+    p = q("SELECT * FROM payments WHERE id=%s AND user_id=%s", (pid, session["uid"]), one=True)
+    if not p: abort(404)
+    if p["status"] == "pending":
+        check_payment(p); p = q("SELECT status,note FROM payments WHERE id=%s", (pid,), one=True)
+    return {"status": p["status"], "message": (p.get("note") or "") if p["status"] == "failed" else ""}
+
+@app.route("/api/pay/webhook", methods=["POST"])
+def pay_webhook():
+    """Techland webhook: X-Techland-Signature = sha256=HMAC(secret, timestamp + '.' + raw_body)."""
+    secret, raw = settings_all()["pay_whsec"], request.get_data()
+    ts, sig = request.headers.get("X-Techland-Timestamp", ""), request.headers.get("X-Techland-Signature", "")
+    try: fresh = abs(time.time() - int(ts)) < 300
+    except ValueError: fresh = False
+    mac = "sha256=" + hmac.new(secret.encode(), ts.encode() + b"." + raw, hashlib.sha256).hexdigest() if secret else ""
+    if not (secret and fresh and hmac.compare_digest(mac, sig)): abort(403)
+    data = (request.get_json(silent=True) or {}).get("data") or {}
+    p = q("SELECT * FROM payments WHERE status='pending' AND (checkout_id=%s OR reference=%s) LIMIT 1", (str(data.get("id") or ""), str(data.get("external_ref") or "")), one=True)
+    if p: check_payment(p)  # confirmed with the API before any storage is added
+    return {"ok": True}
+
+@app.route("/admin")
+@admin_required
+def admin():
+    qs, s = request.args.get("s", "").strip(), settings_all()
+    st = q("""SELECT (SELECT count(*) FROM users) users,(SELECT count(*) FROM users WHERE verified) verified,
+      (SELECT count(*) FROM users WHERE created_at>now()-interval '7 days') new7,(SELECT count(*) FROM files WHERE ready) files,
+      (SELECT COALESCE(sum(size),0) FROM files WHERE ready) bytes,(SELECT COALESCE(sum(amount),0) FROM payments WHERE status='paid') revenue,
+      (SELECT count(*) FROM payments WHERE status='pending') pending""", one=True)
+    users = q("""SELECT u.id,u.username,u.email,u.verified,u.blocked,u.is_admin,u.quota_bytes,u.created_at,COALESCE(f.s,0) used,COALESCE(f.c,0) n
+      FROM users u LEFT JOIN (SELECT user_id,sum(size) s,count(*) c FROM files WHERE ready GROUP BY user_id) f ON f.user_id=u.id
+      WHERE (%s='' OR u.username ILIKE %s OR u.email ILIKE %s) ORDER BY u.created_at DESC LIMIT 100""", (qs, f"%{qs}%", f"%{qs}%"))
+    pays = q("SELECT p.*,u.username FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC LIMIT 50")
+    acts = q("SELECT a.*,u.username FROM activity a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 60")
+    return page(ADMIN_TPL, "Admin · YIM CLOUD STORAGE", full=True, st=st, users=users, pays=pays, acts=acts, s=s, qs=qs, hs=human,
+                cb=f"{base_url()}/api/pay/webhook")
+
+@app.route("/admin/api/user/<int:uid>", methods=["POST"])
+@admin_required
+def admin_user(uid):
+    j = request.get_json(silent=True) or {}; a = j.get("action")
+    if not q("SELECT 1 FROM users WHERE id=%s", (uid,), one=True): abort(404)
+    if uid == session["uid"] and a in ("block", "unadmin"): return {"error": "You can't do that to your own account."}, 400
+    if a == "addgb":
+        try: gb = float(j.get("gb"))
+        except (TypeError, ValueError): return {"error": "Bad number."}, 400
+        q("UPDATE users SET quota_bytes=GREATEST(quota_bytes+%s,0) WHERE id=%s", (int(gb * GB), uid))
+    elif a in ("block", "unblock"): q("UPDATE users SET blocked=%s WHERE id=%s", (a == "block", uid))
+    elif a in ("admin", "unadmin"): q("UPDATE users SET is_admin=%s WHERE id=%s", (a == "admin", uid))
+    else: abort(400)
+    log_act(session["uid"], "admin_" + a, f"user {uid} {j.get('gb', '')}"); return {"ok": True}
+
+@app.route("/admin/api/pay/<int:pid>/credit", methods=["POST"])
+@admin_required
+def admin_credit(pid):
+    credit(pid); log_act(session["uid"], "admin_credit", f"payment {pid}"); return {"ok": True}
+
+@app.route("/admin/api/settings", methods=["POST"])
+@admin_required
+def admin_settings():
+    j = request.get_json(silent=True) or {}
+    for k, v in j.items():
+        if k not in DEFAULTS: continue
+        v = str(v).strip()
+        if k in SECRETS and not v: continue
+        if k in NUMERIC and not re.fullmatch(r"\d+(\.\d+)?", v): return {"error": f"{k} must be a number."}, 400
+        q("INSERT INTO settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", (k, v))
+    log_act(session["uid"], "admin_settings", ",".join(k for k in j if k not in SECRETS)); return {"ok": True}
+
+@app.route("/admin/api/pay-test", methods=["POST"])
+@admin_required
+def admin_pay_test():
+    code, d = pay_call("GET", "/api/v1/payments?limit=1")
+    return {"ok": code == 200 and d.get("ok") is not False, "status": code, "error": d.get("error")}
