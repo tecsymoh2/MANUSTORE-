@@ -410,6 +410,19 @@ input[type=text],input[type=url],textarea,select{color:var(--ink)}.app input[typ
 .plan{display:flex;gap:10px;align-items:center;justify-content:space-between;border:2px solid var(--ink);border-radius:4px;padding:12px;background:var(--surface);cursor:pointer}.plan input[type=radio]{width:auto}.plan span:first-of-type{flex:1}
 .tw{overflow-x:auto}.at{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--tag);border:2px solid var(--ink)}.at th,.at td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.at th{font-size:11px;letter-spacing:.1em;text-transform:uppercase}
 .app textarea{font-family:inherit}
+.fullbox{position:relative;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--stamp);color:#fff;border:3px solid var(--ink);border-radius:6px;padding:18px 20px 26px;margin:14px 0;box-shadow:var(--shadow);overflow:hidden}
+.fullbox:before{content:"";position:absolute;left:0;right:0;bottom:0;height:8px;background:repeating-linear-gradient(45deg,var(--ink) 0 10px,#e8b923 10px 20px)}.fullbox.warn{background:#b6791f}
+.fb-i{font-size:46px;animation:pul 1.6s infinite}@keyframes pul{50%{transform:scale(1.14)}}.fb-t{font-size:34px;letter-spacing:.08em;line-height:1;margin-bottom:6px}.fb-s{font-size:14px;line-height:1.45;max-width:540px}
+.fb-a{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.fb-a .btn{background:#fbf6e9;color:var(--ink);border-color:var(--ink);text-decoration:none}.fb-a .btn.hot{background:var(--ink);color:#fbf6e9}
+.pl-hero{border:3px solid var(--ink);border-radius:6px;padding:22px 18px;margin:16px 0;background:var(--tag);box-shadow:var(--shadow);text-align:center}.pl-hero.full{background:var(--stamp);color:#fff}.pl-hero.warn{background:#b6791f;color:#fff}
+.pl-h{font-size:38px;letter-spacing:.08em}.pl-meter{height:16px;border:2px solid var(--ink);border-radius:8px;background:#0003;overflow:hidden;margin:14px auto 6px;max-width:520px}.pl-meter i{display:block;height:100%;background:var(--teal)}.pl-hero.full .pl-meter i,.pl-hero.warn .pl-meter i{background:#fbf6e9}
+.pl-m2{display:flex;justify-content:space-between;max-width:520px;margin:0 auto;font-size:12px}
+.pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:18px;margin-top:14px}.pl-card{position:relative;background:var(--tag);border:2px solid var(--ink);border-radius:6px;padding:20px 18px;box-shadow:var(--shadow);text-align:center;display:flex;flex-direction:column;gap:8px}
+.pl-card.sel{outline:4px solid var(--teal);outline-offset:3px}.pl-ribbon{position:absolute;top:-12px;right:12px;background:var(--teal);color:#fff;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:3px;border:2px solid var(--ink)}
+.pl-gb{font-size:46px;line-height:1.1}.pl-gb small{font-size:18px}.pl-price{font-size:22px;font-weight:600}.pl-per{font-size:12px;color:var(--crate-dark)}.pl-d{font-size:13px;margin:4px 0}.pl-tip{font-size:12px;color:var(--teal);min-height:16px}
+.pl-ul{list-style:none;padding:0;margin:0 0 8px;font-size:13px;text-align:left}.pl-ul li:before{content:"✓ ";color:var(--teal);font-weight:700}.pl-card .btn{margin-top:auto}
+.pl-f{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}.pl-f>div{background:var(--tag);border:1.5px solid var(--ink);border-radius:4px;padding:12px;font-size:13px}.pl-f b{display:block;margin-bottom:3px}
+.pl-q{background:var(--tag);border:1.5px solid var(--ink);border-radius:4px;padding:10px 14px;margin-top:8px}.pl-q summary{cursor:pointer;font-weight:600}.pl-q p{font-size:13px;margin:8px 0 2px}
 """
 
 LAYOUT = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -607,10 +620,16 @@ DASH = r"""<div class="app">
 <button class="btn ghost" id="themeb" style="justify-content:flex-start">🌙 Dark mode</button>
 <a class="btn ghost" href="/?k=fav" style="justify-content:flex-start;text-decoration:none">★ Favorites</a>
 <a class="btn ghost" href="/?k=trash" style="justify-content:flex-start;text-decoration:none">🗑 Trash</a>
+<a class="btn ghost" href="/plans" style="justify-content:flex-start;text-decoration:none">💳 Storage &amp; plans</a>
 {% if admin %}<a class="btn ghost" href="/admin" style="justify-content:flex-start;text-decoration:none">⚙ Admin</a>{% endif %}
 {% if k=='trash' and items %}<button class="btn ghost" id="emptyb" style="justify-content:flex-start">⚠ Empty trash</button>{% endif %}</div></div>
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="btn ghost">Sign out</button></form></div>
-{% if used>=cap %}<div class="offline-banner">🚫 Your storage is full. <a href="#" onclick="openPlans();return false" style="color:#fff;text-decoration:underline">See plans</a> to keep uploading.</div>{% elif used*100/cap>=90 %}<div class="offline-banner" style="background:#b6944e">⚠ Almost full ({{ hs(used) }} of {{ hs(cap) }}). <a href="#" onclick="openPlans();return false" style="color:#fff;text-decoration:underline">See plans</a></div>{% endif %}
+{% if used>=cap %}<div class="fullbox"><div class="fb-i">🚫</div><div><div class="fb-t display">Storage full</div>
+<div class="fb-s">You've used <b>{{ hs(used) }}</b> of <b>{{ hs(cap) }}</b>. <b>New uploads are paused</b> until you free up space or add more storage.</div></div>
+<div class="fb-a"><a class="btn hot" href="/plans">See plans →</a><a class="btn" href="/?k=trash">Free up space</a></div></div>
+{% elif used*100/cap>=90 %}<div class="fullbox warn"><div class="fb-i">⚠️</div><div><div class="fb-t display">Almost full</div>
+<div class="fb-s">You've used <b>{{ (used*100/cap)|round|int }}%</b> ({{ hs(used) }} of {{ hs(cap) }}). Top up before you run out.</div></div>
+<div class="fb-a"><a class="btn hot" href="/plans">See plans →</a></div></div>{% endif %}
 {% for c,m in fl %}<div class="offline-banner" style="{{ '' if c=='error' else 'background:var(--teal)' }}">{{m}}</div>{% endfor %}
 <div class="stats-bar"><span><b>{{ items|length }}</b> parcels loaded</span><span><b>{{ hs(used) }}</b> of {{ hs(cap) }} used</span><span>last shipped <b>{{ last }}</b></span></div>
 <div class="bulk-bar" id="bulkbar"><span id="bc">0 selected</span><div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -666,12 +685,11 @@ DASH = r"""<div class="app">
 <div class="row"><label>Width <input id="rw" type="number" min="16" style="width:80px;padding:5px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink)"></label><label>☀<input type="range" id="fb" min="50" max="150" value="100"></label><label>◐<input type="range" id="fc" min="50" max="150" value="100"></label><label>🎨<input type="range" id="fs" min="0" max="200" value="100"></label></div>
 <div class="intake-actions"><button class="btn ghost" id="exx">Cancel</button><button class="btn ghost" id="er">Reset</button><button class="btn stamp" id="ed">Apply</button></div></div></div>
 
-<div id="plm" class="modal-back hidden"><div class="modal" style="text-align:left;max-width:460px"><div class="display" style="font-size:18px;text-align:center">Get more storage</div>
-<div class="hint">You've used {{ hs(used) }} of {{ hs(cap) }}. Pick a plan — storage is added automatically after you pay with M-Pesa.</div>
-<div style="display:flex;flex-direction:column;gap:8px;margin:14px 0">{% for p in plans %}<label class="plan"><input type="radio" name="pl" value="{{p.id}}"><span><b>{{p.gb}} GB</b></span><span>KSh {{p.price}}</span></label>{% endfor %}
-<label class="plan"><input type="radio" name="pl" value="custom"><span><b>Custom</b> <input type="number" id="cg" min="1" max="1000" value="10" style="width:70px;padding:4px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink)"> GB</span><span id="cp"></span></label></div>
-<div class="field"><label>M-Pesa number</label><input type="text" id="ph" inputmode="tel" placeholder="07xx xxx xxx"></div>
-<div id="pm" class="hint"></div><button class="btn stamp block" id="pb">Pay with M-Pesa</button><button class="btn ghost block" id="px" style="margin-top:8px">Close</button></div></div>
+<div id="fulm" class="modal-back hidden"><div class="modal"><div style="font-size:58px">🚫</div>
+<div class="display" style="font-size:30px;color:var(--stamp);letter-spacing:.08em">Storage full</div>
+<p style="font-size:14px;margin:10px 0 16px">Your upload was paused because you've used all <b>{{ hs(cap) }}</b>. Free up space, or get more storage in seconds.</p>
+<a class="btn stamp block" href="/plans" style="text-decoration:none">See plans →</a><a class="btn ghost block" href="/?k=trash" style="margin-top:8px;text-decoration:none">Free up space</a>
+<button class="btn ghost block" id="fulx" style="margin-top:8px;border-color:transparent">Close</button></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>const CSRF="{{ session.csrf }}",S3={{ s3|tojson }},ITEMS={{ items|tojson }},K="{{ k }}",PER={{ per_gb }};</script>
 {% raw %}<script>
@@ -769,18 +787,7 @@ $('#ug').onclick=async()=>{if(!S.length)return;$('#ug').disabled=true;let ok=0;c
    ss.textContent='Uploading '+hs(st.orig)+' → '+hs(b.size);await upOne(b,name,p=>bar.style.width=Math.round(p*100)+'%');
    bar.style.width='100%';ss.textContent='✓ Shipped · '+hs(b.size);st.done=1;ok++}catch(e){ss.textContent='⚠ '+e.message}st.busy=0}
  $('#ug').disabled=false;if(ok){$('#us').textContent=ok+' parcel(s) shipped';setTimeout(()=>location.reload(),800)}};
-/* plans + M-Pesa */
-function openPlans(){hid('#plm',1)}$('#px').onclick=()=>hid('#plm',0);
-const upd=()=>$('#cp').textContent='KSh '+Math.max(1,+$('#cg').value||0)*PER;$('#cg').oninput=()=>{upd();document.querySelector('input[value=custom]').checked=true};upd();
-$('#pb').onclick=async()=>{const sel=document.querySelector('input[name=pl]:checked');if(!sel)return $('#pm').textContent='Pick a plan first.';
- $('#pb').disabled=true;$('#pm').textContent='Sending M-Pesa prompt…';
- const r=await pj('/api/pay',{plan:sel.value,gb:+$('#cg').value,phone:$('#ph').value}),j=await r.json();
- if(!r.ok){$('#pm').textContent='⚠ '+j.error;$('#pb').disabled=false;return}
- $('#pm').textContent='Check your phone and enter your M-Pesa PIN to pay KSh '+j.amount+'…';let n=0;
- const t=setInterval(async()=>{n++;let s={};try{s=await (await fetch('/api/pay/'+j.id)).json()}catch(e){}
-  if(s.status==='paid'){clearInterval(t);$('#pm').textContent='✅ Payment received! +'+j.gb+' GB added.';setTimeout(()=>location.reload(),1500)}
-  else if(s.status==='failed'){clearInterval(t);$('#pm').textContent='⚠ Payment failed or was cancelled. '+(s.message||'')+' You can try again.';$('#pb').disabled=false}
-  else if(n>45){clearInterval(t);$('#pm').textContent='Still waiting… if you paid, your storage will appear shortly.';$('#pb').disabled=false}},4000)};
+function openPlans(){hid('#fulm',1)}$('#fulx').onclick=()=>hid('#fulm',0);
 /* image editor */
 let E=null,d0=null;const cw=$('#cw'),cv=$('#ec'),cr=$('#cr');
 const flt=()=>`brightness(${$('#fb').value}%) contrast(${$('#fc').value}%) saturate(${$('#fs').value}%)`;
@@ -1056,6 +1063,92 @@ def api_meta(fid):
     return {"ok": True}
 
 # ---------- settings, mail, plans, payments, admin ----------
+PLANS_TPL = r"""<div class="app">
+<div class="topbar"><div class="brand display">YIM <span>CLOUD STORAGE</span></div><span style="flex:1"></span><a class="btn ghost" href="/" style="text-decoration:none">← Back to store</a></div>
+<div class="pl-hero {{ state }}"><div class="display pl-h">{{ '🚫 STORAGE FULL' if state=='full' else '⚠ ALMOST FULL' if state=='warn' else 'GET MORE STORAGE' }}</div>
+<p style="margin:8px auto 0;max-width:560px;font-size:14px">{{ msg }}</p>
+<div class="pl-meter"><i style="width:{{pct}}%"></i></div><div class="pl-m2"><span>{{ hs(used) }} used</span><span>{{pct}}% of {{ hs(cap) }}</span></div></div>
+
+<div class="section-title">Choose a plan</div>
+<div class="pl-grid">
+{% for p in cards %}<div class="pl-card" data-id="{{p.id}}" data-gb="{{p.gb}}" data-price="{{p.price}}">{% if p.best %}<div class="pl-ribbon">Best value</div>{% endif %}
+<div><span class="stamp-tag" style="position:static;display:inline-block;transform:rotate(-3deg)">{{p.name}}</span></div>
+<div class="display pl-gb">{{p.gb}} <small>GB</small></div><div class="pl-price">KSh {{p.price}}</div><div class="pl-per">≈ KSh {{p.per}} per GB · one-time</div>
+<p class="pl-d">{{p.desc}}</p><ul class="pl-ul"><li>≈ {{p.photos}} photos</li><li>≈ {{p.hours}} hours of video</li><li>Added to your account instantly</li></ul>
+<button class="btn stamp block pl-pick">Choose {{p.gb}} GB</button></div>{% endfor %}
+<div class="pl-card" data-id="custom"><div><span class="stamp-tag" style="position:static;display:inline-block;transform:rotate(-3deg)">YOUR SIZE</span></div>
+<div class="display pl-gb"><input type="number" id="cg" min="1" max="1000" value="10" style="width:90px;font:inherit;text-align:center;border:2px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px"> <small>GB</small></div>
+<div class="pl-price" id="cp"></div><div class="pl-per">KSh {{per}} per GB · one-time</div>
+<p class="pl-d">Need something in between? Pick exactly the size you need, from 1 to 1000 GB.</p><div class="pl-tip" id="ch"></div>
+<ul class="pl-ul"><li>Any size you like</li><li>Stacks on top of your storage</li><li>Added to your account instantly</li></ul>
+<button class="btn stamp block pl-pick">Choose custom size</button></div>
+</div>
+
+<div class="intake hidden" id="ck" style="margin-top:18px"><div class="section-title">Checkout</div>
+<div id="sm" style="font-size:16px;margin:6px 0 12px"></div>
+<div class="field"><label>M-Pesa number</label><input type="text" id="ph" inputmode="tel" placeholder="07xx xxx xxx" style="width:100%;padding:10px 12px;border:1.5px solid var(--ink);border-radius:3px;background:var(--surface);color:var(--ink)"></div>
+<div class="hint" style="text-align:left">You'll get an M-Pesa prompt on this number. Enter your PIN to pay — your storage is added automatically.</div>
+<div id="pm" style="font-weight:600;margin:10px 0"></div><div class="intake-actions"><button class="btn stamp" id="pb">Pay with M-Pesa</button></div></div>
+
+<div class="section-title" style="margin-top:28px">How it works</div>
+<div class="pl-f"><div><b>1 · Choose a plan</b>Pick 50 GB, 100 GB, or your own size.</div><div><b>2 · Pay with M-Pesa</b>Enter your number and approve the prompt on your phone.</div><div><b>3 · Storage added</b>Your new space appears in seconds, and we email you a receipt.</div></div>
+
+<div class="section-title" style="margin-top:28px">Every plan includes</div>
+<div class="pl-f">
+<div><b>⚡ Instant activation</b>No waiting — storage is added as soon as the payment clears.</div>
+<div><b>🗜 Auto-shrink</b>Photos and videos are shrunk before upload, so your GB go further.</div>
+<div><b>🔗 Share links &amp; QR</b>Share any file with a link, a QR code and an optional expiry.</div>
+<div><b>💬 Comments &amp; reactions</b>Visitors can react and comment on files you share.</div>
+<div><b>🗑 Trash &amp; restore</b>Deleted something by mistake? Bring it back from Trash.</div>
+<div><b>🔒 Private by default</b>Only the files you choose to share are public.</div>
+<div><b>🏷 Tags &amp; search</b>Name, describe and tag files so you can find them fast.</div>
+<div><b>♾ No expiry</b>Storage you buy stays on your account — it is a one-time top-up.</div></div>
+
+<div class="section-title" style="margin-top:28px">Questions</div>
+<details class="pl-q"><summary>Is this a subscription?</summary><p>No. Each purchase is a one-time top-up that is added to your storage and stays on your account. Buy more any time and it stacks.</p></details>
+<details class="pl-q"><summary>How long until I get my storage?</summary><p>Usually within seconds of approving the M-Pesa prompt. This page updates by itself when the payment is confirmed.</p></details>
+<details class="pl-q"><summary>I paid but my storage didn't change</summary><p>Wait a minute and refresh. If it still hasn't changed, contact the site admin with your M-Pesa receipt and they can add it for you.</p></details>
+<details class="pl-q"><summary>How do I free up space instead?</summary><p>Delete files you don't need, then empty your <a href="/?k=trash">Trash</a> — files in Trash still count towards your storage until they are deleted forever.</p></details>
+<div class="pub-foot" style="margin-top:30px">DEVELOPED BY SYMOH TECH</div></div>
+
+<script>const CSRF="{{ session.csrf }}",PER={{ per }},PLANS={{ cards|tojson }};</script>
+{% raw %}<script>
+const $=s=>document.querySelector(s),pj=(u,o)=>fetch(u,{method:'POST',headers:{'X-CSRF':CSRF,'Content-Type':'application/json'},body:JSON.stringify(o)});
+let pick=null;
+function hint(){const g=Math.max(1,+$('#cg').value||0),pr=g*PER,b=PLANS.filter(p=>p.gb>=g&&p.price<=pr).sort((a,b)=>a.price-b.price)[0];
+ $('#cp').textContent='KSh '+pr;$('#ch').textContent=b?`💡 The ${b.gb} GB plan costs KSh ${b.price} — ${b.price<pr?'more storage for less':'more storage for the same price'}.`:'';if(pick&&pick.id==='custom')choose($('[data-id=custom]'))}
+$('#cg').oninput=hint;hint();
+function choose(c){document.querySelectorAll('.pl-card').forEach(x=>x.classList.remove('sel'));c.classList.add('sel');
+ pick=c.dataset.id==='custom'?{id:'custom',gb:Math.max(1,+$('#cg').value||0),price:Math.max(1,+$('#cg').value||0)*PER}:{id:c.dataset.id,gb:+c.dataset.gb,price:+c.dataset.price};
+ $('#sm').innerHTML='<b>'+pick.gb+' GB</b> for <b>KSh '+pick.price+'</b>';$('#ck').classList.remove('hidden');$('#ck').scrollIntoView({behavior:'smooth',block:'center'})}
+document.querySelectorAll('.pl-pick').forEach(b=>b.onclick=()=>choose(b.closest('.pl-card')));
+$('#pb').onclick=async()=>{if(!pick)return;$('#pb').disabled=true;$('#pm').textContent='Sending M-Pesa prompt…';
+ const r=await pj('/api/pay',{plan:pick.id,gb:pick.gb,phone:$('#ph').value}),j=await r.json();
+ if(!r.ok){$('#pm').textContent='⚠ '+j.error;$('#pb').disabled=false;return}
+ $('#pm').textContent='📲 Check your phone and enter your M-Pesa PIN to pay KSh '+j.amount+'…';let n=0;
+ const t=setInterval(async()=>{n++;let s={};try{s=await (await fetch('/api/pay/'+j.id)).json()}catch(e){}
+  if(s.status==='paid'){clearInterval(t);$('#pm').textContent='✅ Payment received! +'+j.gb+' GB added. Taking you back…';setTimeout(()=>location.href='/',1800)}
+  else if(s.status==='failed'){clearInterval(t);$('#pm').textContent='⚠ Payment failed or was cancelled. '+(s.message||'')+' You can try again.';$('#pb').disabled=false}
+  else if(n>45){clearInterval(t);$('#pm').textContent='Still waiting… if you paid, your storage will appear shortly.';$('#pb').disabled=false}},4000)};
+</script>{% endraw %}
+"""
+
+@app.route("/plans")
+@login_required
+def plans_page():
+    u = user(); used, cap = used_bytes(u["id"]), u["quota_bytes"]; pl, per = plans()
+    pct = min(100, int(round(used * 100 / cap))) if cap else 100
+    state = "full" if used >= cap else "warn" if used * 100 / cap >= 90 else "ok"
+    msg = {"full": f"You've used all {human(cap)}. New uploads are paused until you free up space or add more storage.",
+           "warn": f"You've used {pct}% of your {human(cap)}. Top up before you run out.",
+           "ok": f"You're using {human(used)} of {human(cap)}. Add more any time — it stacks on top of what you already have."}[state]
+    fmt = lambda x: f"{x:.2f}".rstrip("0").rstrip(".")
+    descs = ["Great for everyday photos, screenshots and documents.", "Room for a whole library of photos, videos and big backups."]
+    best = min(pl, key=lambda x: x["price"] / x["gb"])["id"]
+    cards = [dict(p, name=("STARTER", "POWER")[i], per=fmt(p["price"] / p["gb"]), photos=f"{int(p['gb'] * 650):,}", hours=int(p["gb"] * 0.8),
+                  desc=descs[i], best=p["id"] == best) for i, p in enumerate(sorted(pl, key=lambda x: x["gb"]))]
+    return page(PLANS_TPL, "Storage plans · YIM CLOUD STORAGE", full=True, state=state, msg=msg, pct=pct, used=used, cap=cap, cards=cards, per=per, hs=human)
+
 ADMIN_TPL = r"""<div class="app">
 <div class="topbar"><div class="brand display">YIM <span>ADMIN</span></div><span style="flex:1"></span><a class="btn ghost" href="/" style="text-decoration:none">← Back to store</a></div>
 <div class="stats-bar" style="flex-wrap:wrap;gap:14px 26px"><span><b>{{st.users}}</b> users</span><span><b>{{st.verified}}</b> verified</span><span><b>{{st.new7}}</b> new (7d)</span><span><b>{{st.files}}</b> files</span><span><b>{{hs(st.bytes)}}</b> stored</span><span><b>KSh {{st.revenue}}</b> revenue</span><span><b>{{st.pending}}</b> pending payments</span></div>
