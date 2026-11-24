@@ -1,4 +1,4 @@
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 import os, re, time, hmac, json, hashlib, smtplib, ssl, urllib.parse, secrets, mimetypes, urllib.request, urllib.error
 from datetime import timedelta, datetime, timezone
 from functools import wraps
@@ -102,12 +102,25 @@ def admin_required(f):
     return w
 
 def csrf_ok():
-    return hmac.compare_digest(request.form.get("csrf") or request.headers.get("X-CSRF", ""), session.get("csrf", ""))
+    """Token match, or (when the token is stale/missing) a same-origin request. Cross-site posts are still rejected."""
+    tok = request.form.get("csrf") or request.headers.get("X-CSRF", "")
+    if tok and hmac.compare_digest(tok, session.get("csrf", "")): return True
+    src = request.headers.get("Origin") or request.headers.get("Referer", "")
+    return bool(src) and urlparse(src).netloc == request.host
 
 @app.before_request
 def guard():
     session.setdefault("csrf", secrets.token_hex(16))
-    if request.method == "POST" and request.path != "/api/pay/webhook" and not csrf_ok(): abort(400, "Bad CSRF token")
+    if request.method == "POST" and request.path not in ("/api/pay/webhook", "/logout") and not csrf_ok():
+        if request.headers.get("X-CSRF") is not None or request.is_json:
+            return {"error": "Your session expired. Please refresh the page."}, 400
+        flash("Your session expired — please try again.", "error")
+        return redirect(url_for("home" if session.get("uid") else "login"))
+
+@app.after_request
+def no_cache(r):
+    if r.mimetype == "text/html": r.headers["Cache-Control"] = "no-store"
+    return r
 
 def kind_of(mime):
     return "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "file"
